@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yuki.webapp.mapper.CompetitionMapper">
+    <!--标题，标签，学校模糊匹配content-->
+    <select id="selectCompetition" resultType="com.yuki.webapp.pojo.CompetitionDTO">
+        SELECT c.*, u.user_name
+        FROM competition c
+        JOIN user u ON c.user_id = u.user_id
+        <where>
+            <!-- 添加 deadline > NOW() 条件 -->
+            deadline > NOW()
+            <if test="content != null and content != ''">
+                AND
+                <foreach collection="content.split('[\\s,;]+')" item="keyword" open="(" separator="OR" close=")">
+                    (c.title LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.tag1 LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.tag2 LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.tag3 LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.tag4 LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.tag5 LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.school_requirements LIKE CONCAT('%', #{keyword}, '%'))
+                </foreach>
+            </if>
+        </where>
+    </select>
+
+    <!--查询竞赛信息（单条）-->
+    <select id="competitionDetail" resultType="com.yuki.webapp.pojo.CompetitionDetail">
+        select
+            user_id, title, tag1, tag2, tag3, tag4, tag5,
+            competition_details, max_participants,
+            school_requirements, deadline,
+            (select count(*)
+            from competition_member
+            where competition_id = #{competitionId} and admission_status = 1) as currentCount
+        from competition c
+        where competition_id = #{competitionId}
+    </select>
+
+    <!--//查询成员列表（多条）-->
+    <select id="getAdmittedMembers" resultType="com.yuki.webapp.pojo.CompetitionUser">
+        select u.user_id, u.user_name
+        from user u
+        join competition_member cm on u.user_id = cm.user_id
+        where cm.competition_id = #{competitionId} and cm.admission_status = 1
+    </select>
+</mapper>

@@ -1,0 +1,52 @@
+my:
+  verification-code:
+    code-expire-time: 300000
+spring:
+  application:
+    name: web-app
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://47.104.194.69:3306/campus_assistant
+    username: ccc
+    password: Night31415!
+#    url: ${DATABASE_URL}
+#    username: ${DATABASE_USERNAME}
+#    password: ${DATABASE_PASSWORD}
+  mail:
+    default-encoding: UTF-8
+    host: smtp.qq.com
+    port: 587
+    username: liu050329@qq.com
+    password: pbucyhuoakerdggg
+    properties:
+      mail:
+        debug: true
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+server:
+  port: 8080
+logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  level:
+    root: INFO
+    org.springframework.jdbc: DEBUG
+    org.springframework.web: DEBUG
+    com.yuki.webapp.mapper: DEBUG
+    com.yuki.webapp.utils: DEBUG
+  file:
+    name: ./logs/app.log
+pagehelper:
+  helper-dialect: mysql  # 数据库方言
+  reasonable: true       # 分页参数合理化
+  support-methods-arguments: true
+  return-page-info: always
+
+
