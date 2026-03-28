@@ -9,9 +9,9 @@ spring:
     url: jdbc:mysql://47.104.194.69:3306/campus_assistant
     username: ccc
     password: Night31415!
-#    url: ${DATABASE_URL}
-#    username: ${DATABASE_USERNAME}
-#    password: ${DATABASE_PASSWORD}
+  #    url: ${DATABASE_URL}
+  #    username: ${DATABASE_USERNAME}
+  #    password: ${DATABASE_PASSWORD}
   mail:
     default-encoding: UTF-8
     host: smtp.qq.com
@@ -44,9 +44,26 @@ logging:
   file:
     name: ./logs/app.log
 pagehelper:
-  helper-dialect: mysql  # 数据库方言
-  reasonable: true       # 分页参数合理化
+  helper-dialect: mysql # 数据库方言
+  reasonable: true # 分页参数合理化
   support-methods-arguments: true
   return-page-info: always
 
+# 通义千问
+dashscope:
+  api-key: sk-a34faf314c1744bd92dc2ddc3559de58 # Qwen2 API Key
+  embedding-model: text-embedding-v3
+  chat-model: qwen-plus
+  embedding-dim: 1024
 
+# Qdrant 向量数据库
+qdrant:
+  host: localhost # 腾讯云服务器上改为服务器内网IP
+  port: 6334 # gRPC端口
+  collection-name: competitions
+
+# Meilisearch
+meilisearch:
+  host: http://localhost:7700
+  api-key: yourMasterKey123 # 与docker-compose中保持一致
+  index-name: competitions
