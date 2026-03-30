@@ -1,6 +1,7 @@
 package com.yuki.webapp.contoller;
 
 import com.yuki.webapp.pojo.*;
+import com.yuki.webapp.service.CompetitionIndexService;
 import com.yuki.webapp.service.CompetitionService;
 import com.yuki.webapp.utils.ThreadLocalUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,8 +9,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
-import com.yuki.webapp.pojo.CompetitionUser;
-import com.yuki.webapp.pojo.CompetitionDetail;
 
 @RestController
 @RequestMapping("/index")
@@ -104,5 +103,17 @@ public class CompetitionController {
     @DeleteMapping("/deleteCompetitioin")
     public Result deleteCompetitioin(@RequestParam Integer competitionId){
         return competitionService.deleteCompetition(competitionId);
+    }
+
+    @Autowired
+    private CompetitionIndexService competitionIndexService;
+    
+    @PostMapping("/syncIndex")
+    public Result syncIndex() {
+        List<Competition> all = competitionService.getAllCompetitions();
+        for (Competition c : all) {
+            competitionIndexService.indexCompetition(c);
+        }
+        return Result.success("同步完成，共 " + all.size() + " 条");
     }
 }

@@ -17,6 +17,9 @@ public interface CompetitionMapper {
     @Options(useGeneratedKeys = true, keyProperty = "competitionId")//设置competitionId为自增
     void insertCompetition(Competition competition);
 
+    @Select("select * from competition")
+    List<Competition> getAllCompetitions();
+
     //报名竞赛
     @Insert("insert into competition_member (competition_id,user_id)"+
     "values (#{competitionId},#{userId})")

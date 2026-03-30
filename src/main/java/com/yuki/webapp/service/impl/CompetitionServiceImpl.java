@@ -165,4 +165,9 @@ public class CompetitionServiceImpl implements CompetitionService {
             return Result.error("解散竞赛队伍失败: " + e.getMessage());
         }
     }
+
+    @Override
+    public List<Competition> getAllCompetitions() {
+        return competitionMapper.getAllCompetitions();
+    }
 }

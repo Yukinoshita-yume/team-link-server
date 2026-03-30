@@ -31,4 +31,6 @@ public interface CompetitionService {
     List<AllCompetitionsDTO> getAllAppliedCompetitions(Integer userId);
 
     Result deleteCompetition(Integer competitionId);
+
+    List<Competition> getAllCompetitions();
 }
