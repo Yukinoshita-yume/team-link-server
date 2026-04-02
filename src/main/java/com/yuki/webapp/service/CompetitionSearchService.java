@@ -36,7 +36,7 @@ public class CompetitionSearchService {
     private String meiliIndex;
 
     private static final int TOP_CANDIDATES = 20;
-    private static final int FINAL_TOP = 5;
+    private static final int FINAL_TOP = 10;
     private static final double VECTOR_WEIGHT = 0.7;
     private static final double BM25_WEIGHT = 0.3;
 
@@ -61,7 +61,7 @@ public class CompetitionSearchService {
                 只返回扩展后的搜索短语，不要解释，不要标点符号，词语之间用空格分隔，长度控制在50字以内。
                 """;
         try {
-            return dashScopeUtil.chat(systemPrompt, query, 0.3);
+            return dashScopeUtil.chat(systemPrompt, query, 0.0);
         } catch (Exception e) {
             return query;
         }
@@ -241,7 +241,7 @@ public class CompetitionSearchService {
                         ? r.competitionDetails.substring(0, Math.min(r.competitionDetails.length(), 200))
                         : "");
         try {
-            return dashScopeUtil.chat(systemPrompt, userMsg, 0.5);
+            return dashScopeUtil.chat(systemPrompt, userMsg, 0.0);
         } catch (Exception e) {
             return "该竞赛与您的搜索需求高度匹配。";
         }
