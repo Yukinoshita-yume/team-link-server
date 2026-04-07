@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/** 单个维度的分数与可读说明。 */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
