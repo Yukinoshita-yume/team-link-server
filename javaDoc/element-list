@@ -1,0 +1,11 @@
+com.yuki.webapp
+com.yuki.webapp.config
+com.yuki.webapp.contoller
+com.yuki.webapp.exception
+com.yuki.webapp.interceptors
+com.yuki.webapp.mapper
+com.yuki.webapp.pojo
+com.yuki.webapp.pojo.analysis
+com.yuki.webapp.service
+com.yuki.webapp.service.impl
+com.yuki.webapp.utils
