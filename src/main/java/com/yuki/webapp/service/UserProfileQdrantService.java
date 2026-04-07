@@ -1,6 +1,8 @@
 package com.yuki.webapp.service;
 
 import com.alibaba.fastjson.JSON;
+import com.yuki.webapp.pojo.UserDTO;
+import com.yuki.webapp.pojo.analysis.TextAnalysisResult;
 import com.yuki.webapp.pojo.profile.CompetenceCardDTO;
 import com.yuki.webapp.pojo.profile.RadarScoresDTO;
 import com.yuki.webapp.utils.DashScopeUtil;
@@ -27,6 +29,12 @@ public class UserProfileQdrantService {
     @Autowired
     private DashScopeUtil dashScopeUtil;
 
+    @Autowired(required = false)
+    private TextAnalysisService textAnalysisService;
+
+    @Autowired(required = false)
+    private UserService userService;
+
     @Value("${qdrant.profile-collection-name:user_profiles}")
     private String profileCollection;
 
@@ -43,15 +51,15 @@ public class UserProfileQdrantService {
                     null
             ).get();
             if (points == null || points.isEmpty()) {
-                return emptyCard(userId);
+                return generateFromUserProfile(userId);
             }
             Map<String, JsonWithInt.Value> payload = points.get(0).getPayloadMap();
             if (payload == null || !payload.containsKey("cardPayload")) {
-                return emptyCard(userId);
+                return generateFromUserProfile(userId);
             }
             String json = payload.get("cardPayload").getStringValue();
             if (json == null || json.isBlank()) {
-                return emptyCard(userId);
+                return generateFromUserProfile(userId);
             }
             CompetenceCardDTO dto = JSON.parseObject(json, CompetenceCardDTO.class);
             if (dto.getUserId() == null) {
@@ -113,6 +121,20 @@ public class UserProfileQdrantService {
             existing.setSkillTags(List.of());
         }
         upsertCompetenceCard(existing);
+    }
+
+    private CompetenceCardDTO generateFromUserProfile(int userId) {
+        if (textAnalysisService == null || userService == null) {
+            return emptyCard(userId);
+        }
+        UserDTO user = userService.getUserInfoById(userId);
+        if (user == null || user.getUserInformation() == null || user.getUserInformation().isBlank()) {
+            return emptyCard(userId);
+        }
+        TextAnalysisResult analysis = textAnalysisService.analyze(user.getUserInformation());
+        CompetenceCardDTO card = CompetenceCardAssembler.fromTextAnalysis(analysis, userId);
+        upsertCompetenceCard(card);
+        return card;
     }
 
     private static CompetenceCardDTO emptyCard(int userId) {
