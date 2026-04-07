@@ -11,41 +11,39 @@ import org.springframework.context.annotation.Configuration;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
+/**
+ * 单一 Qdrant 连接：与现有 {@code qdrant.host}/{@code qdrant.port} 配置一致，
+ * 启动时确保「竞赛」与「用户画像」两个 collection 存在（同名已存在则跳过）。
+ */
 @Configuration
 public class QdrantConfig {
 
-    @Value("${qdrant.host}")
-    private String host;
-
-    @Value("${qdrant.port}")
-    private int port;
-
-    @Value("${qdrant.collection-name}")
-    private String collectionName;
-
-    private static final int VECTOR_SIZE = 1024;
-
     @Bean
-    public QdrantClient qdrantClient() throws ExecutionException, InterruptedException {
+    public QdrantClient qdrantClient(
+            @Value("${qdrant.host}") String host,
+            @Value("${qdrant.port}") int port,
+            @Value("${qdrant.collection-name}") String competitionsCollection,
+            @Value("${qdrant.profile-collection-name:user_profiles}") String profileCollection,
+            @Value("${qdrant.vector-size:1024}") int vectorSize
+    ) throws ExecutionException, InterruptedException {
         QdrantClient client = new QdrantClient(
                 QdrantGrpcClient.newBuilder(host, port, false).build()
         );
-        createCollectionIfNotExists(client);
+        createCollectionIfNotExists(client, competitionsCollection, vectorSize);
+        createCollectionIfNotExists(client, profileCollection, vectorSize);
         return client;
     }
 
-    private void createCollectionIfNotExists(QdrantClient client)
+    private static void createCollectionIfNotExists(QdrantClient client, String collectionName, int vectorSize)
             throws ExecutionException, InterruptedException {
-
         List<String> collections = client.listCollectionsAsync().get();
         if (collections.contains(collectionName)) {
             return;
         }
-
         client.createCollectionAsync(
                 collectionName,
                 VectorParams.newBuilder()
-                        .setSize(VECTOR_SIZE)
+                        .setSize(vectorSize)
                         .setDistance(Distance.Cosine)
                         .build()
         ).get();
