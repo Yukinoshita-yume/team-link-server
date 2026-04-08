@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -39,17 +40,111 @@ public class CompetitionSearchService {
     private static final int FINAL_TOP = 10;
     private static final double VECTOR_WEIGHT = 0.7;
     private static final double BM25_WEIGHT = 0.3;
+    // 标签完全命中时的加分权重（修复问题1）
+    private static final double TAG_BONUS = 0.25;
+
+    // ── 时间过滤条件内部类 ────────────────────────────────
+    private static class TimeFilter {
+        LocalDateTime from;  // 截止时间下限（含）
+        LocalDateTime to;    // 截止时间上限（含）
+        String cleanQuery;   // 去掉时间描述后的纯语义查询
+
+        boolean hasFilter() {
+            return from != null || to != null;
+        }
+    }
 
     public List<CompetitionSearchResult> search(String originalQuery) {
-        String expandedQuery = rewriteQuery(originalQuery);
+
+        // 步骤0：解析时间过滤条件（修复问题2）
+        TimeFilter timeFilter = extractTimeFilter(originalQuery);
+
+        // 步骤1：查询改写（使用去时间词后的纯语义 query）
+        String expandedQuery = rewriteQuery(timeFilter.cleanQuery);
+
+        // 步骤2-4：混合检索 + 融合
         List<ScoredResult> vectorResults = vectorSearch(expandedQuery, TOP_CANDIDATES);
         List<ScoredResult> bm25Results = bm25Search(expandedQuery, TOP_CANDIDATES);
         List<ScoredResult> merged = hybridMerge(vectorResults, bm25Results);
-        List<ScoredResult> reranked = rerank(originalQuery, merged);
+
+        // 步骤4.5：标签命中加分（修复问题1）
+        boostByTagMatch(merged, timeFilter.cleanQuery);
+
+        // 步骤5：Reranking
+        List<ScoredResult> reranked = rerank(timeFilter.cleanQuery, merged);
+
+        // 步骤6：过滤（已过期 + 时间范围）
         return reranked.stream()
+                .filter(r -> !isExpired(r.deadline))
+                .filter(r -> matchesTimeFilter(r.deadline, timeFilter))
                 .limit(FINAL_TOP)
                 .map(r -> buildResult(r, originalQuery))
                 .collect(Collectors.toList());
+    }
+
+    // ── 步骤0：时间条件提取（修复问题2）────────────────────
+
+    /**
+     * 用 LLM 从查询中提取时间范围，返回结构化过滤条件。
+     * 示例：
+     *   "截止时间在2026年的AI竞赛" → from=2026-01-01, to=2026-12-31, cleanQuery="AI竞赛"
+     *   "2026年6月前截止的Java比赛"  → from=null, to=2026-06-30, cleanQuery="Java比赛"
+     *   "找需要Java的竞赛"           → 无时间条件，cleanQuery 与原文相同
+     */
+    private TimeFilter extractTimeFilter(String query) {
+        TimeFilter filter = new TimeFilter();
+        filter.cleanQuery = query;
+
+        String systemPrompt = """
+                你是时间条件解析助手。从用户的搜索词中提取截止时间范围，输出严格的JSON，不要其他内容。
+                格式：{"from":"YYYY-MM-DDTHH:mm:ss","to":"YYYY-MM-DDTHH:mm:ss","cleanQuery":"去掉时间描述后的查询"}
+                规则：
+                - 如果有年份限制（如"2026年"），from=该年1月1日，to=该年12月31日23:59:59
+                - 如果有"X月前截止"，to=该月最后一天23:59:59，from=null
+                - 如果有"X月后截止"，from=该月1日，to=null
+                - 如果没有任何时间限制，from=null，to=null，cleanQuery与原文相同
+                - null 字段输出 null（不要字符串"null"）
+                """;
+
+        try {
+            String response = dashScopeUtil.chat(systemPrompt, "搜索词：" + query, 0.0);
+            int start = response.indexOf('{');
+            int end = response.lastIndexOf('}');
+            if (start == -1 || end == -1) return filter;
+
+            JSONObject json = JSON.parseObject(response.substring(start, end + 1));
+
+            String fromStr = json.getString("from");
+            String toStr = json.getString("to");
+            String clean = json.getString("cleanQuery");
+
+            if (fromStr != null && !fromStr.equals("null")) {
+                filter.from = LocalDateTime.parse(fromStr);
+            }
+            if (toStr != null && !toStr.equals("null")) {
+                filter.to = LocalDateTime.parse(toStr);
+            }
+            if (clean != null && !clean.isBlank()) {
+                filter.cleanQuery = clean;
+            }
+        } catch (Exception e) {
+            // 解析失败则不做时间过滤，保证降级可用
+        }
+        return filter;
+    }
+
+    private boolean matchesTimeFilter(String deadlineStr, TimeFilter filter) {
+        if (!filter.hasFilter()) return true;
+        if (deadlineStr == null || deadlineStr.isBlank()) return true;
+
+        try {
+            LocalDateTime deadline = LocalDateTime.parse(deadlineStr);
+            if (filter.from != null && deadline.isBefore(filter.from)) return false;
+            if (filter.to != null && deadline.isAfter(filter.to)) return false;
+            return true;
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     // ── 步骤1：查询改写 ──────────────────────────────────
@@ -72,8 +167,6 @@ public class CompetitionSearchService {
     private List<ScoredResult> vectorSearch(String query, int limit) {
         try {
             List<Float> queryVector = dashScopeUtil.getEmbedding(query);
-
-            // 1.13.0 修复：searchAsync 返回 List<ScoredPoint>，不是 ListenableFuture<List<Searchable>>
             List<Points.ScoredPoint> points = qdrantClient.searchAsync(
                     Points.SearchPoints.newBuilder()
                             .setCollectionName(qdrantCollection)
@@ -99,13 +192,11 @@ public class CompetitionSearchService {
 
     private List<ScoredResult> bm25Search(String query, int limit) {
         try {
-            // 1.13.0 修复：search() 返回 Searchable，强转为 SearchResult
             com.meilisearch.sdk.model.Searchable searchable =
                     meilisearchClient.getIndex(meiliIndex)
                             .search(new SearchRequest(query).setLimit(limit));
 
             List<ScoredResult> list = new ArrayList<>();
-            // getHits() 返回 List<HashMap>，用 fastjson 统一处理
             JSONArray hits = JSON.parseArray(JSON.toJSONString(searchable.getHits()));
             for (int i = 0; i < hits.size(); i++) {
                 JSONObject hit = hits.getJSONObject(i);
@@ -134,7 +225,7 @@ public class CompetitionSearchService {
     // ── 步骤4：混合融合 ──────────────────────────────────
 
     private List<ScoredResult> hybridMerge(List<ScoredResult> vectorResults,
-                                            List<ScoredResult> bm25Results) {
+                                           List<ScoredResult> bm25Results) {
         Map<Integer, ScoredResult> map = new LinkedHashMap<>();
 
         for (ScoredResult r : vectorResults) {
@@ -154,6 +245,36 @@ public class CompetitionSearchService {
                 .sorted(Comparator.comparingDouble(r -> -r.hybridScore))
                 .limit(TOP_CANDIDATES)
                 .collect(Collectors.toList());
+    }
+
+    // ── 步骤4.5：标签命中加分（修复问题1）───────────────────
+
+    /**
+     * 对 hybridScore 进行标签命中加权：
+     * - 查询词中出现的标签每命中一个加 TAG_BONUS 分
+     * - 最多加到 1.0（防止溢出后 matchScore 超过100）
+     */
+    private void boostByTagMatch(List<ScoredResult> results, String query) {
+        if (query == null || query.isBlank()) return;
+        String lowerQuery = query.toLowerCase();
+
+        for (ScoredResult r : results) {
+            long hitCount = Arrays.asList(r.tag1, r.tag2, r.tag3, r.tag4, r.tag5)
+                    .stream()
+                    .filter(t -> t != null && !t.isBlank())
+                    .filter(t -> lowerQuery.contains(t.toLowerCase()))
+                    .count();
+
+            if (hitCount > 0) {
+                // 每命中一个标签加 TAG_BONUS，最多加 4 个
+                double bonus = Math.min(hitCount * TAG_BONUS, TAG_BONUS * 4);
+                r.hybridScore = Math.min(r.hybridScore + bonus, 1.0);
+                r.tagHitCount = (int) hitCount;
+            }
+        }
+
+        // 加分后重新排序
+        results.sort(Comparator.comparingDouble(r -> -r.hybridScore));
     }
 
     // ── 步骤5：Reranking ─────────────────────────────────
@@ -177,7 +298,6 @@ public class CompetitionSearchService {
 
         try {
             String response = dashScopeUtil.chat(systemPrompt, userMsg, 0.1);
-            // 提取 JSON 数组（防止 LLM 在前后加了多余文字）
             int start = response.indexOf('[');
             int end = response.lastIndexOf(']');
             if (start == -1 || end == -1) return candidates;
@@ -195,7 +315,6 @@ public class CompetitionSearchService {
                     reranked.add(r);
                 }
             }
-            // 补上 reranking 没返回的条目（防止 LLM 漏掉某些 ID）
             Set<Integer> rerankedIds = reranked.stream()
                     .map(r -> r.competitionId).collect(Collectors.toSet());
             candidates.stream()
@@ -207,7 +326,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 步骤6：生成推荐理由（2.5）────────────────────────
+    // ── 步骤6：生成推荐理由 ───────────────────────────────
 
     private CompetitionSearchResult buildResult(ScoredResult r, String originalQuery) {
         CompetitionSearchResult result = new CompetitionSearchResult();
@@ -223,8 +342,13 @@ public class CompetitionSearchService {
         result.setSchoolRequirements(r.schoolRequirements);
         result.setDeadline(r.deadline);
 
-        double score = Math.min(r.rerankScore > 0 ? r.rerankScore : r.hybridScore, 1.0) * 100;
+        // 修复问题1：matchScore 综合 rerankScore、hybridScore、标签命中数
+        double baseScore = r.rerankScore > 0 ? r.rerankScore : r.hybridScore;
+        // 标签命中额外提升展示分（每命中一个+8分，上限+24）
+        double tagBonus = Math.min(r.tagHitCount * 8.0, 24.0);
+        double score = Math.min(baseScore * 100 + tagBonus, 100.0);
         result.setMatchScore(Math.round(score * 10.0) / 10.0);
+
         result.setHitTags(findHitTags(r, originalQuery));
         result.setRecommendation(generateRecommendation(r, originalQuery));
         return result;
@@ -248,6 +372,15 @@ public class CompetitionSearchService {
     }
 
     // ── 工具方法 ──────────────────────────────────────────
+
+    private boolean isExpired(String deadlineStr) {
+        if (deadlineStr == null || deadlineStr.isBlank()) return false;
+        try {
+            return LocalDateTime.parse(deadlineStr).isBefore(LocalDateTime.now());
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     private List<String> findHitTags(ScoredResult r, String query) {
         String lowerQuery = query.toLowerCase();
@@ -300,5 +433,6 @@ public class CompetitionSearchService {
         double bm25Score = 0;
         double hybridScore = 0;
         double rerankScore = 0;
+        int tagHitCount = 0;  // 新增：标签命中数
     }
 }

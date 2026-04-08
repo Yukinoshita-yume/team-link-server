@@ -7,6 +7,8 @@ import com.yuki.webapp.utils.ThreadLocalUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -111,8 +113,12 @@ public class CompetitionController {
     @PostMapping("/syncIndex")
     public Result syncIndex() {
         List<Competition> all = competitionService.getAllCompetitions();
+        LocalDateTime now = LocalDateTime.now();
+
         for (Competition c : all) {
-            competitionIndexService.indexCompetition(c);
+            if (c.getDeadline() == null || c.getDeadline().isAfter(now)) {
+                competitionIndexService.indexCompetition(c);
+            }
         }
         return Result.success("同步完成，共 " + all.size() + " 条");
     }
