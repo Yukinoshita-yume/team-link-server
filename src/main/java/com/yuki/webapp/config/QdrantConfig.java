@@ -13,7 +13,7 @@ import java.util.concurrent.ExecutionException;
 
 /**
  * 单一 Qdrant 连接：与现有 {@code qdrant.host}/{@code qdrant.port} 配置一致，
- * 启动时确保「竞赛」与「用户画像」两个 collection 存在（同名已存在则跳过）。
+ * 启动时确保「竞赛」collection 存在（同名已存在则跳过）。
  */
 @Configuration
 public class QdrantConfig {
@@ -23,14 +23,12 @@ public class QdrantConfig {
             @Value("${qdrant.host}") String host,
             @Value("${qdrant.port}") int port,
             @Value("${qdrant.collection-name}") String competitionsCollection,
-            @Value("${qdrant.profile-collection-name:user_profiles}") String profileCollection,
             @Value("${qdrant.vector-size:1024}") int vectorSize
     ) throws ExecutionException, InterruptedException {
         QdrantClient client = new QdrantClient(
                 QdrantGrpcClient.newBuilder(host, port, false).build()
         );
         createCollectionIfNotExists(client, competitionsCollection, vectorSize);
-        createCollectionIfNotExists(client, profileCollection, vectorSize);
         return client;
     }
 
