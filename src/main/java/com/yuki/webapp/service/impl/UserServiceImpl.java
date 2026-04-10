@@ -7,6 +7,7 @@ import com.yuki.webapp.pojo.Result;
 import com.yuki.webapp.pojo.User;
 import com.yuki.webapp.pojo.UserDTO;
 import com.yuki.webapp.service.UserService;
+import com.yuki.webapp.service.UserProfileMySqlService;
 import com.yuki.webapp.service.VerificationCodeService;
 import com.yuki.webapp.utils.Md5Util;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private VerificationCodeService verificationCodeService;
+
+    @Autowired(required = false)
+    private UserProfileMySqlService userProfileMySqlService;
 
     @Override
     public User findByUserEmail(String userEmail) {
@@ -39,8 +43,34 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public void update(User user) {
+        String previousIntro = null;
+        if (user.getUserId() != null) {
+            UserDTO existing = getUserInfoById(user.getUserId());
+            if (existing != null) {
+                previousIntro = existing.getUserInformation();
+            }
+        }
+
         user.setUserUpdateTime(LocalDateTime.now());
         userMapper.update(user);
+
+        // 简介字段有提交且内容相对数据库有变化时，重新生成画像并同步 user_skill_tag（一对多）
+        if (userProfileMySqlService == null || user.getUserId() == null || user.getUserInformation() == null) {
+            return;
+        }
+        if (!introChanged(previousIntro, user.getUserInformation())) {
+            return;
+        }
+        try {
+            userProfileMySqlService.generateAndSaveFromIntro(user.getUserId());
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static boolean introChanged(String previous, String submitted) {
+        String a = previous == null ? "" : previous.trim();
+        String b = submitted == null ? "" : submitted.trim();
+        return !a.equals(b);
     }
 
     @Override

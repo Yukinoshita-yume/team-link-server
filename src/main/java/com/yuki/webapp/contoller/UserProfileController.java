@@ -4,8 +4,7 @@ import com.yuki.webapp.pojo.Result;
 import com.yuki.webapp.pojo.analysis.TextAnalysisResult;
 import com.yuki.webapp.pojo.profile.CompetenceCardDTO;
 import com.yuki.webapp.pojo.profile.SkillTagsUpdateRequest;
-import com.yuki.webapp.service.CompetenceCardAssembler;
-import com.yuki.webapp.service.UserProfileQdrantService;
+import com.yuki.webapp.service.UserProfileMySqlService;
 import com.yuki.webapp.utils.ThreadLocalUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +24,7 @@ import java.util.Map;
 public class UserProfileController {
 
     @Autowired
-    private UserProfileQdrantService userProfileQdrantService;
+    private UserProfileMySqlService userProfileMySqlService;
 
     /**
      * 获取当前登录用户的能力卡片（无记录时返回各字段默认值）。
@@ -33,7 +32,7 @@ public class UserProfileController {
     @GetMapping("/competence-card")
     public Result<CompetenceCardDTO> getCompetenceCard() {
         int userId = currentUserId();
-        return Result.success(userProfileQdrantService.getCompetenceCard(userId));
+        return Result.success(userProfileMySqlService.getOrGenerateCompetenceCard(userId));
     }
 
     /**
@@ -41,10 +40,7 @@ public class UserProfileController {
      */
     @PutMapping("/competence-card")
     public Result<Void> saveCompetenceCard(@RequestBody CompetenceCardDTO body) {
-        int userId = currentUserId();
-        body.setUserId(userId);
-        userProfileQdrantService.upsertCompetenceCard(body);
-        return Result.success();
+        return Result.error("暂不支持手动保存能力画像，请通过个人简介自动生成");
     }
 
     /**
@@ -52,12 +48,7 @@ public class UserProfileController {
      */
     @PutMapping("/skill-tags")
     public Result<Void> updateSkillTags(@RequestBody SkillTagsUpdateRequest request) {
-        int userId = currentUserId();
-        if (request.getSkillTags() == null) {
-            request.setSkillTags(java.util.Collections.emptyList());
-        }
-        userProfileQdrantService.updateSkillTags(userId, request.getSkillTags());
-        return Result.success();
+        return Result.error("暂不支持手动修改技能标签，请通过个人简介自动生成");
     }
 
     /**
@@ -66,8 +57,7 @@ public class UserProfileController {
     @PostMapping("/apply-text-analysis")
     public Result<Void> applyTextAnalysis(@RequestBody TextAnalysisResult analysis) {
         int userId = currentUserId();
-        CompetenceCardDTO card = CompetenceCardAssembler.fromTextAnalysis(analysis, userId);
-        userProfileQdrantService.upsertCompetenceCard(card);
+        userProfileMySqlService.saveFromAnalysis(userId, "manual_apply", analysis);
         return Result.success();
     }
 
