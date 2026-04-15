@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.yuki.webapp.mapper.TeamDiagnosisMapper">
+
+    <!-- =====================================================================
+         竞赛基本信息
+         ===================================================================== -->
+
+    <select id="selectCompetitionBasicInfo" resultType="map">
+        SELECT competition_id,
+               title,
+               tag1, tag2, tag3, tag4, tag5,
+               user_id,
+               deadline,
+               max_participants
+        FROM competition
+        WHERE competition_id = #{competitionId}
+    </select>
+
+    <!-- =====================================================================
+         队伍成员信息
+         ===================================================================== -->
+
+    <!-- 已录取成员（admission_status = true），不包含队长自身 -->
+    <select id="selectAdmittedMembers" resultType="map">
+        SELECT cm.user_id,
+               u.user_name
+        FROM competition_member cm
+                 JOIN user u ON cm.user_id = u.user_id
+        WHERE cm.competition_id = #{competitionId}
+          AND cm.admission_status = TRUE
+    </select>
+
+    <!-- 竞赛创建者（队长） -->
+    <select id="selectCompetitionCreator" resultType="map">
+        SELECT c.user_id,
+               u.user_name
+        FROM competition c
+                 JOIN user u ON c.user_id = u.user_id
+        WHERE c.competition_id = #{competitionId}
+    </select>
+
+    <!-- =====================================================================
+         4.1 技能缺口分析
+         ===================================================================== -->
+
+    <select id="selectUserSkillTags" resultType="map">
+        SELECT st.tag_name,
+               ust.skill_level,
+               ust.confidence,
+               ust.evidence
+        FROM user_skill_tag ust
+                 JOIN skill_tag st ON ust.tag_id = st.tag_id
+        WHERE ust.user_id = #{userId}
+        ORDER BY ust.confidence DESC
+    </select>
+
+    <!-- 根据标签名在 tag_name 或 tag_aliases 中模糊匹配 -->
+    <select id="selectSkillTagByName" resultType="map">
+        SELECT tag_id,
+               tag_name,
+               tag_aliases,
+               tag_level,
+               tag_category
+        FROM skill_tag
+        WHERE is_active = TRUE
+          AND (
+            tag_name LIKE CONCAT('%', #{tagName}, '%')
+                OR tag_aliases LIKE CONCAT('%', #{tagName}, '%')
+            )
+        LIMIT 5
+    </select>
+
+    <!-- =====================================================================
+         4.2 时间冲突检测
+         ===================================================================== -->
+
+    <select id="selectUserTimeProfile" resultType="map">
+        SELECT weekly_hours,
+               busy_level,
+               available_periods
+        FROM user_profile
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectUserUnavailableDates" resultType="map">
+        SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+               DATE_FORMAT(end_date,   '%Y-%m-%d') AS end_date,
+               reason
+        FROM user_unavailable_date
+        WHERE user_id = #{userId}
+          AND end_date >= #{windowStart}
+          AND start_date &lt;= #{windowEnd}
+        ORDER BY start_date
+    </select>
+
+    <!-- =====================================================================
+         4.3 经验断层 + 角色覆盖
+         ===================================================================== -->
+
+    <select id="selectUserCompetitionExperiences" resultType="map">
+        SELECT competition_name,
+               competition_time,
+               role,
+               award,
+               description
+        FROM user_competition_experience
+        WHERE user_id = #{userId}
+        ORDER BY competition_time DESC
+    </select>
+
+    <select id="selectUserProfileScores" resultType="map">
+        SELECT score_competition,
+               score_tech_depth,
+               score_teamwork,
+               score_learning,
+               score_availability,
+               composite_score,
+               ability_summary
+        FROM user_profile
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectUserDomains" resultType="map">
+        SELECT domain,
+               confidence
+        FROM user_domain
+        WHERE user_id = #{userId}
+        ORDER BY confidence DESC
+    </select>
+
+</mapper>
