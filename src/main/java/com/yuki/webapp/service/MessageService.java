@@ -14,5 +14,8 @@ public interface MessageService {
 
     List<Map<String, Object>> getUnadmittedMembers(Integer userId);
 
+    List<Map<String, Object>> getUnadmittedMembersByCompetition(Integer competitionId);
+
+
     void read(Integer messageId);
 }

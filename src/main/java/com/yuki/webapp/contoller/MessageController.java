@@ -27,9 +27,16 @@ public class MessageController {
     }
 
     // 查询某一用户创建的竞赛的所有未录取的成员
-    @GetMapping("/unadmittedMembers")
-    public Result<List<Map<String, Object>>> unadmittedMembers(@RequestParam("userId") Integer userId){
+    @GetMapping(value = "/unadmittedMembers",params = "userId")
+    public Result<List<Map<String, Object>>> unadmittedMembers( Integer userId){
         List<Map<String, Object>> data = messageService.getUnadmittedMembers(userId);
+        return Result.success(data);
+    }
+
+    // 查询某个竞赛的所有未录取的成员
+    @GetMapping(value = "/unadmittedMembers",params = "competitionId")
+    public Result<List<Map<String, Object>>> unadmittedMembersByCompetition( Integer competitionId){
+        List<Map<String, Object>> data = messageService.getUnadmittedMembersByCompetition(competitionId);
         return Result.success(data);
     }
 
