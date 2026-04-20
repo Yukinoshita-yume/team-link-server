@@ -5,6 +5,8 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.meilisearch.sdk.Client;
 import com.meilisearch.sdk.SearchRequest;
+import com.yuki.webapp.mapper.CompetitionMapper;
+import com.yuki.webapp.pojo.Competition;
 import com.yuki.webapp.pojo.CompetitionSearchResult;
 import com.yuki.webapp.utils.DashScopeUtil;
 import io.qdrant.client.QdrantClient;
@@ -30,6 +32,9 @@ public class CompetitionSearchService {
     @Autowired
     private DashScopeUtil dashScopeUtil;
 
+    @Autowired
+    private CompetitionMapper competitionMapper;
+
     @Value("${qdrant.collection-name}")
     private String qdrantCollection;
 
@@ -40,57 +45,190 @@ public class CompetitionSearchService {
     private static final int FINAL_TOP = 10;
     private static final double VECTOR_WEIGHT = 0.7;
     private static final double BM25_WEIGHT = 0.3;
-    // 标签完全命中时的加分权重（修复问题1）
     private static final double TAG_BONUS = 0.25;
 
-    // ── 时间过滤条件内部类 ────────────────────────────────
+    private static final double MIN_HYBRID_SCORE = 0.25;
+    private static final double MIN_RERANK_SCORE = 0.25;
+
+    // ── 时间过滤条件内部类 ──────────────────────────────────────────────
     private static class TimeFilter {
-        LocalDateTime from;  // 截止时间下限（含）
-        LocalDateTime to;    // 截止时间上限（含）
-        String cleanQuery;   // 去掉时间描述后的纯语义查询
+        LocalDateTime from;
+        LocalDateTime to;
+        String cleanQuery;
 
         boolean hasFilter() {
             return from != null || to != null;
         }
     }
 
+    // ── 全量同步：数据库 → MeiliSearch + Qdrant ────────────────────────
+    public String syncAllToIndex() {
+        List<Competition> list = competitionMapper.getAllCompetitions();
+        int successMeili = 0;
+        int successQdrant = 0;
+
+        for (Competition c : list) {
+            // 1. 写入 MeiliSearch
+            try {
+                JSONObject doc = new JSONObject();
+                doc.put("competitionId", c.getCompetitionId());
+                doc.put("title", c.getTitle());
+                doc.put("tag1", c.getTag1());
+                doc.put("tag2", c.getTag2());
+                doc.put("tag3", c.getTag3());
+                doc.put("tag4", c.getTag4());
+                doc.put("tag5", c.getTag5());
+                doc.put("competitionDetails", c.getCompetitionDetails());
+                doc.put("maxParticipants", c.getMaxParticipants());
+                doc.put("schoolRequirements", c.getSchoolRequirements());
+                doc.put("deadline", c.getDeadline() != null ? c.getDeadline().toString() : null);
+
+                meilisearchClient.getIndex(meiliIndex)
+                        .addDocuments("[" + doc.toJSONString() + "]", "competitionId");
+                successMeili++;
+            } catch (Exception e) {
+                System.out.println("[SYNC] MeiliSearch 写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
+            }
+
+            // 2. 生成向量并写入 Qdrant
+            try {
+                String text = nullSafe(c.getTitle()) + " " +
+                        nullSafe(c.getTag1()) + " " +
+                        nullSafe(c.getTag2()) + " " +
+                        nullSafe(c.getTag3()) + " " +
+                        nullSafe(c.getTag4()) + " " +
+                        nullSafe(c.getTag5()) + " " +
+                        nullSafe(c.getCompetitionDetails());
+
+                List<Float> vector = dashScopeUtil.getEmbedding(text);
+
+                Map<String, JsonWithInt.Value> payload = new HashMap<>();
+                payload.put("competitionId", JsonWithInt.Value.newBuilder().setIntegerValue(c.getCompetitionId()).build());
+                payload.put("title", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTitle())).build());
+                payload.put("tag1", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag1())).build());
+                payload.put("tag2", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag2())).build());
+                payload.put("tag3", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag3())).build());
+                payload.put("tag4", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag4())).build());
+                payload.put("tag5", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag5())).build());
+                payload.put("competitionDetails", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getCompetitionDetails())).build());
+                payload.put("deadline", JsonWithInt.Value.newBuilder().setStringValue(
+                        c.getDeadline() != null ? c.getDeadline().toString() : "").build());
+                payload.put("schoolRequirements", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getSchoolRequirements())).build());
+                if (c.getMaxParticipants() != null) {
+                    payload.put("maxParticipants", JsonWithInt.Value.newBuilder().setIntegerValue(c.getMaxParticipants()).build());
+                }
+
+                Points.PointStruct point = Points.PointStruct.newBuilder()
+                        .setId(Points.PointId.newBuilder().setNum(c.getCompetitionId()).build())
+                        .setVectors(Points.Vectors.newBuilder()
+                                .setVector(Points.Vector.newBuilder().addAllData(vector).build()))
+                        .putAllPayload(payload)
+                        .build();
+
+                qdrantClient.upsertAsync(qdrantCollection,
+                        Collections.singletonList(point)).get();
+                successQdrant++;
+            } catch (Exception e) {
+                System.out.println("[SYNC] Qdrant 写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
+            }
+        }
+
+        return "同步完成：共 " + list.size() + " 条，MeiliSearch 成功 " + successMeili
+                + " 条，Qdrant 成功 " + successQdrant + " 条";
+    }
+
+    // ── 单条写入索引（新建竞赛时调用）────────────────────────────────────
+    public void addToIndex(Competition c) {
+        // MeiliSearch
+        try {
+            JSONObject doc = new JSONObject();
+            doc.put("competitionId", c.getCompetitionId());
+            doc.put("title", c.getTitle());
+            doc.put("tag1", c.getTag1());
+            doc.put("tag2", c.getTag2());
+            doc.put("tag3", c.getTag3());
+            doc.put("tag4", c.getTag4());
+            doc.put("tag5", c.getTag5());
+            doc.put("competitionDetails", c.getCompetitionDetails());
+            doc.put("maxParticipants", c.getMaxParticipants());
+            doc.put("schoolRequirements", c.getSchoolRequirements());
+            doc.put("deadline", c.getDeadline() != null ? c.getDeadline().toString() : null);
+
+            meilisearchClient.getIndex(meiliIndex)
+                    .addDocuments("[" + doc.toJSONString() + "]", "competitionId");
+        } catch (Exception e) {
+            System.out.println("[INDEX] MeiliSearch 单条写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
+        }
+
+        // Qdrant
+        try {
+            String text = nullSafe(c.getTitle()) + " " +
+                    nullSafe(c.getTag1()) + " " +
+                    nullSafe(c.getTag2()) + " " +
+                    nullSafe(c.getTag3()) + " " +
+                    nullSafe(c.getTag4()) + " " +
+                    nullSafe(c.getTag5()) + " " +
+                    nullSafe(c.getCompetitionDetails());
+
+            List<Float> vector = dashScopeUtil.getEmbedding(text);
+
+            Map<String, JsonWithInt.Value> payload = new HashMap<>();
+            payload.put("competitionId", JsonWithInt.Value.newBuilder().setIntegerValue(c.getCompetitionId()).build());
+            payload.put("title", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTitle())).build());
+            payload.put("tag1", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag1())).build());
+            payload.put("tag2", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag2())).build());
+            payload.put("tag3", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag3())).build());
+            payload.put("tag4", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag4())).build());
+            payload.put("tag5", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag5())).build());
+            payload.put("competitionDetails", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getCompetitionDetails())).build());
+            payload.put("deadline", JsonWithInt.Value.newBuilder().setStringValue(
+                    c.getDeadline() != null ? c.getDeadline().toString() : "").build());
+            payload.put("schoolRequirements", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getSchoolRequirements())).build());
+            if (c.getMaxParticipants() != null) {
+                payload.put("maxParticipants", JsonWithInt.Value.newBuilder().setIntegerValue(c.getMaxParticipants()).build());
+            }
+
+            Points.PointStruct point = Points.PointStruct.newBuilder()
+                    .setId(Points.PointId.newBuilder().setNum(c.getCompetitionId()).build())
+                    .setVectors(Points.Vectors.newBuilder()
+                            .setVector(Points.Vector.newBuilder().addAllData(vector).build()))
+                    .putAllPayload(payload)
+                    .build();
+
+            qdrantClient.upsertAsync(qdrantCollection, Collections.singletonList(point)).get();
+        } catch (Exception e) {
+            System.out.println("[INDEX] Qdrant 单条写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
+        }
+    }
+
+    // ── 搜索主流程 ────────────────────────────────────────────────────
     public List<CompetitionSearchResult> search(String originalQuery) {
-
-        // 步骤0：解析时间过滤条件（修复问题2）
         TimeFilter timeFilter = extractTimeFilter(originalQuery);
-
-        // 步骤1：查询改写（使用去时间词后的纯语义 query）
         String expandedQuery = rewriteQuery(timeFilter.cleanQuery);
 
-        // 步骤2-4：混合检索 + 融合
         List<ScoredResult> vectorResults = vectorSearch(expandedQuery, TOP_CANDIDATES);
         List<ScoredResult> bm25Results = bm25Search(expandedQuery, TOP_CANDIDATES);
         List<ScoredResult> merged = hybridMerge(vectorResults, bm25Results);
 
-        // 步骤4.5：标签命中加分（修复问题1）
         boostByTagMatch(merged, timeFilter.cleanQuery);
 
-        // 步骤5：Reranking
         List<ScoredResult> reranked = rerank(timeFilter.cleanQuery, merged);
 
-        // 步骤6：过滤（已过期 + 时间范围）
         return reranked.stream()
                 .filter(r -> !isExpired(r.deadline))
                 .filter(r -> matchesTimeFilter(r.deadline, timeFilter))
+                .filter(r -> isRelevant(r))
                 .limit(FINAL_TOP)
                 .map(r -> buildResult(r, originalQuery))
                 .collect(Collectors.toList());
     }
 
-    // ── 步骤0：时间条件提取（修复问题2）────────────────────
+    private boolean isRelevant(ScoredResult r) {
+        if (r.rerankScore > 0) return true;
+        return r.hybridScore >= MIN_HYBRID_SCORE;
+    }
 
-    /**
-     * 用 LLM 从查询中提取时间范围，返回结构化过滤条件。
-     * 示例：
-     *   "截止时间在2026年的AI竞赛" → from=2026-01-01, to=2026-12-31, cleanQuery="AI竞赛"
-     *   "2026年6月前截止的Java比赛"  → from=null, to=2026-06-30, cleanQuery="Java比赛"
-     *   "找需要Java的竞赛"           → 无时间条件，cleanQuery 与原文相同
-     */
+    // ── 时间条件提取 ──────────────────────────────────────────────────
     private TimeFilter extractTimeFilter(String query) {
         TimeFilter filter = new TimeFilter();
         filter.cleanQuery = query;
@@ -113,22 +251,15 @@ public class CompetitionSearchService {
             if (start == -1 || end == -1) return filter;
 
             JSONObject json = JSON.parseObject(response.substring(start, end + 1));
-
             String fromStr = json.getString("from");
             String toStr = json.getString("to");
             String clean = json.getString("cleanQuery");
 
-            if (fromStr != null && !fromStr.equals("null")) {
-                filter.from = LocalDateTime.parse(fromStr);
-            }
-            if (toStr != null && !toStr.equals("null")) {
-                filter.to = LocalDateTime.parse(toStr);
-            }
-            if (clean != null && !clean.isBlank()) {
-                filter.cleanQuery = clean;
-            }
+            if (fromStr != null && !fromStr.equals("null")) filter.from = LocalDateTime.parse(fromStr);
+            if (toStr != null && !toStr.equals("null")) filter.to = LocalDateTime.parse(toStr);
+            if (clean != null && !clean.isBlank()) filter.cleanQuery = clean;
         } catch (Exception e) {
-            // 解析失败则不做时间过滤，保证降级可用
+            // 解析失败不做时间过滤，降级可用
         }
         return filter;
     }
@@ -136,7 +267,6 @@ public class CompetitionSearchService {
     private boolean matchesTimeFilter(String deadlineStr, TimeFilter filter) {
         if (!filter.hasFilter()) return true;
         if (deadlineStr == null || deadlineStr.isBlank()) return true;
-
         try {
             LocalDateTime deadline = LocalDateTime.parse(deadlineStr);
             if (filter.from != null && deadline.isBefore(filter.from)) return false;
@@ -147,8 +277,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 步骤1：查询改写 ──────────────────────────────────
-
+    // ── 查询改写 ──────────────────────────────────────────────────────
     private String rewriteQuery(String query) {
         String systemPrompt = """
                 你是一个竞赛搜索助手。请将用户的搜索词扩展为更完整的搜索短语，
@@ -162,8 +291,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 步骤2：向量检索 ──────────────────────────────────
-
+    // ── 向量检索 ──────────────────────────────────────────────────────
     private List<ScoredResult> vectorSearch(String query, int limit) {
         try {
             List<Float> queryVector = dashScopeUtil.getEmbedding(query);
@@ -182,14 +310,12 @@ public class CompetitionSearchService {
                 r.vectorScore = p.getScore();
                 return r;
             }).collect(Collectors.toList());
-
         } catch (Exception e) {
             return Collections.emptyList();
         }
     }
 
-    // ── 步骤3：BM25 关键词检索 ──────────────────────────
-
+    // ── BM25 关键词检索 ───────────────────────────────────────────────
     private List<ScoredResult> bm25Search(String query, int limit) {
         try {
             com.meilisearch.sdk.model.Searchable searchable =
@@ -216,14 +342,12 @@ public class CompetitionSearchService {
                 list.add(r);
             }
             return list;
-
         } catch (Exception e) {
             return Collections.emptyList();
         }
     }
 
-    // ── 步骤4：混合融合 ──────────────────────────────────
-
+    // ── 混合融合 ──────────────────────────────────────────────────────
     private List<ScoredResult> hybridMerge(List<ScoredResult> vectorResults,
                                            List<ScoredResult> bm25Results) {
         Map<Integer, ScoredResult> map = new LinkedHashMap<>();
@@ -247,13 +371,7 @@ public class CompetitionSearchService {
                 .collect(Collectors.toList());
     }
 
-    // ── 步骤4.5：标签命中加分（修复问题1）───────────────────
-
-    /**
-     * 对 hybridScore 进行标签命中加权：
-     * - 查询词中出现的标签每命中一个加 TAG_BONUS 分
-     * - 最多加到 1.0（防止溢出后 matchScore 超过100）
-     */
+    // ── 标签命中加分 ──────────────────────────────────────────────────
     private void boostByTagMatch(List<ScoredResult> results, String query) {
         if (query == null || query.isBlank()) return;
         String lowerQuery = query.toLowerCase();
@@ -266,19 +384,15 @@ public class CompetitionSearchService {
                     .count();
 
             if (hitCount > 0) {
-                // 每命中一个标签加 TAG_BONUS，最多加 4 个
                 double bonus = Math.min(hitCount * TAG_BONUS, TAG_BONUS * 4);
                 r.hybridScore = Math.min(r.hybridScore + bonus, 1.0);
                 r.tagHitCount = (int) hitCount;
             }
         }
-
-        // 加分后重新排序
         results.sort(Comparator.comparingDouble(r -> -r.hybridScore));
     }
 
-    // ── 步骤5：Reranking ─────────────────────────────────
-
+    // ── Reranking ─────────────────────────────────────────────────────
     private List<ScoredResult> rerank(String originalQuery, List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return candidates;
 
@@ -292,7 +406,8 @@ public class CompetitionSearchService {
 
         String systemPrompt = """
                 你是一个竞赛推荐助手。根据用户的搜索意图，对候选竞赛按相关性从高到低排序。
-                只返回竞赛编号（competitionId）的JSON数组，格式如：[3,1,5,2,4]，不要其他内容。
+                重要：如果某个竞赛与用户需求完全不相关，请直接将其从结果中去除，不要排在末尾。
+                只返回相关竞赛的 competitionId 的 JSON 数组，格式如：[3,1,5]，不要其他内容。
                 """;
         String userMsg = "用户搜索：" + originalQuery + "\n\n候选竞赛：\n" + candidatesDesc;
 
@@ -315,19 +430,13 @@ public class CompetitionSearchService {
                     reranked.add(r);
                 }
             }
-            Set<Integer> rerankedIds = reranked.stream()
-                    .map(r -> r.competitionId).collect(Collectors.toSet());
-            candidates.stream()
-                    .filter(r -> !rerankedIds.contains(r.competitionId))
-                    .forEach(reranked::add);
             return reranked;
         } catch (Exception e) {
             return candidates;
         }
     }
 
-    // ── 步骤6：生成推荐理由 ───────────────────────────────
-
+    // ── 构建返回结果 ──────────────────────────────────────────────────
     private CompetitionSearchResult buildResult(ScoredResult r, String originalQuery) {
         CompetitionSearchResult result = new CompetitionSearchResult();
         result.setCompetitionId(r.competitionId);
@@ -342,12 +451,10 @@ public class CompetitionSearchService {
         result.setSchoolRequirements(r.schoolRequirements);
         result.setDeadline(r.deadline);
 
-        // 修复问题1：matchScore 综合 rerankScore、hybridScore、标签命中数
         double baseScore = r.rerankScore > 0 ? r.rerankScore : r.hybridScore;
-        // 标签命中额外提升展示分（每命中一个+8分，上限+24）
         double tagBonus = Math.min(r.tagHitCount * 8.0, 24.0);
-        double score = Math.min(baseScore * 100 + tagBonus, 100.0);
-        result.setMatchScore(Math.round(score * 10.0) / 10.0);
+        double matchScore = Math.min((baseScore * 76) + tagBonus, 99.0);
+        result.setMatchScore(matchScore);
 
         result.setHitTags(findHitTags(r, originalQuery));
         result.setRecommendation(generateRecommendation(r, originalQuery));
@@ -371,8 +478,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 工具方法 ──────────────────────────────────────────
-
+    // ── 工具方法 ──────────────────────────────────────────────────────
     private boolean isExpired(String deadlineStr) {
         if (deadlineStr == null || deadlineStr.isBlank()) return false;
         try {
@@ -396,6 +502,10 @@ public class CompetitionSearchService {
                 .stream()
                 .filter(t -> t != null && !t.isBlank())
                 .collect(Collectors.joining(" "));
+    }
+
+    private String nullSafe(String s) {
+        return s == null ? "" : s;
     }
 
     private ScoredResult payloadToResult(Map<String, JsonWithInt.Value> payload) {
@@ -422,8 +532,6 @@ public class CompetitionSearchService {
         return val.isBlank() ? null : val;
     }
 
-    // ── 内部数据结构 ──────────────────────────────────────
-
     private static class ScoredResult {
         Integer competitionId;
         String title, tag1, tag2, tag3, tag4, tag5;
@@ -433,6 +541,6 @@ public class CompetitionSearchService {
         double bm25Score = 0;
         double hybridScore = 0;
         double rerankScore = 0;
-        int tagHitCount = 0;  // 新增：标签命中数
+        int tagHitCount = 0;
     }
 }

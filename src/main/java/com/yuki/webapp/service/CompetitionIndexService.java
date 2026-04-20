@@ -41,7 +41,6 @@ public class CompetitionIndexService {
     }
 
     public void deleteIndex(Integer competitionId) {
-        // 1.13.0 正确写法：传 List<PointId>
         try {
             qdrantClient.deleteAsync(
                     qdrantCollection,
@@ -111,7 +110,6 @@ public class CompetitionIndexService {
                     .putAllPayload(toQdrantPayload(payload))
                     .build();
 
-            // 1.13.0 正确写法：upsertAsync(collectionName, List<PointStruct>)
             qdrantClient.upsertAsync(qdrantCollection, List.of(point)).get();
 
         } catch (Exception e) {

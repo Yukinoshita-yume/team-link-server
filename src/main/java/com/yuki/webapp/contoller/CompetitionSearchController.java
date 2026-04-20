@@ -27,4 +27,10 @@ public class CompetitionSearchController {
         List<CompetitionSearchResult> results = competitionSearchService.search(query);
         return Result.success(results);
     }
+
+    @GetMapping("/syncIndex")
+    public Result<String> syncIndex() {
+        String result = competitionSearchService.syncAllToIndex();
+        return Result.success(result);
+    }
 }

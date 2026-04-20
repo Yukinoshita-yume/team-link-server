@@ -5,6 +5,7 @@ import com.github.pagehelper.PageInfo;
 import com.yuki.webapp.mapper.CompetitionMapper;
 import com.yuki.webapp.mapper.MessageMapper;
 import com.yuki.webapp.pojo.*;
+import com.yuki.webapp.service.CompetitionIndexService;
 import com.yuki.webapp.service.CompetitionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,9 @@ public class CompetitionServiceImpl implements CompetitionService {
 
     @Autowired
     private MessageMapper messageMapper;
+
+    @Autowired
+    private CompetitionIndexService competitionIndexService;
 
     /**
      * @param page               页码
@@ -55,6 +59,7 @@ public class CompetitionServiceImpl implements CompetitionService {
         competition.setCompetitionCreatedTime(LocalDateTime.now());
         competition.setCompetitionUpdatedTime(LocalDateTime.now());
         competitionMapper.insertCompetition(competition);
+        competitionIndexService.indexCompetition(competition);
     }
 
     @Override
@@ -159,6 +164,8 @@ public class CompetitionServiceImpl implements CompetitionService {
             competitionMapper.deleteMembers(competitionId);
             // 6. 删除竞赛记录
             competitionMapper.deleteCompetition(competitionId);
+            // 7. 删除搜索索引
+            competitionIndexService.deleteIndex(competitionId);
 
             return Result.success();
         } catch (Exception e) {
