@@ -201,6 +201,28 @@ public class CompetitionSearchService {
         }
     }
 
+    // ── 单条删除索引（删除竞赛时调用）────────────────────────────────────
+    public void removeFromIndex(int competitionId) {
+        // MeiliSearch
+        try {
+            meilisearchClient.getIndex(meiliIndex).deleteDocument(String.valueOf(competitionId));
+        } catch (Exception e) {
+            System.out.println("[INDEX] MeiliSearch 单条删除失败 id=" + competitionId + " " + e.getMessage());
+        }
+
+        // Qdrant
+        try {
+            qdrantClient.deleteAsync(
+                    qdrantCollection,
+                    Collections.singletonList(
+                            Points.PointId.newBuilder().setNum(competitionId).build()
+                    )
+            ).get();
+        } catch (Exception e) {
+            System.out.println("[INDEX] Qdrant 单条删除失败 id=" + competitionId + " " + e.getMessage());
+        }
+    }
+
     // ── 搜索主流程 ────────────────────────────────────────────────────
     public List<CompetitionSearchResult> search(String originalQuery) {
         TimeFilter timeFilter = extractTimeFilter(originalQuery);
@@ -214,13 +236,36 @@ public class CompetitionSearchService {
 
         List<ScoredResult> reranked = rerank(timeFilter.cleanQuery, merged);
 
+        // ── [FIX] 回查数据库，过滤掉索引中存在但数据库中已不存在的记录 ──
+        Set<Integer> existingIds = getExistingIdsFromDb(reranked);
+
         return reranked.stream()
+                .filter(r -> existingIds.contains(r.competitionId))   // [FIX] 数据库存在性校验
                 .filter(r -> !isExpired(r.deadline))
                 .filter(r -> matchesTimeFilter(r.deadline, timeFilter))
                 .filter(r -> isRelevant(r))
                 .limit(FINAL_TOP)
                 .map(r -> buildResult(r, originalQuery))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * [FIX] 批量回查数据库，返回实际存在的 competitionId 集合。
+     * 用于过滤索引中存在但数据库已删除的幽灵数据。
+     */
+    private Set<Integer> getExistingIdsFromDb(List<ScoredResult> candidates) {
+        if (candidates.isEmpty()) return Collections.emptySet();
+        List<Integer> ids = candidates.stream()
+                .map(r -> r.competitionId)
+                .collect(Collectors.toList());
+        try {
+            List<Integer> existing = competitionMapper.findExistingIds(ids);
+            return new HashSet<>(existing);
+        } catch (Exception e) {
+            // 数据库查询失败时降级：放行全部，避免搜索功能完全不可用
+            System.out.println("[SEARCH] 回查数据库失败，跳过存在性校验：" + e.getMessage());
+            return candidates.stream().map(r -> r.competitionId).collect(Collectors.toSet());
+        }
     }
 
     private boolean isRelevant(ScoredResult r) {
@@ -396,6 +441,11 @@ public class CompetitionSearchService {
     private List<ScoredResult> rerank(String originalQuery, List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return candidates;
 
+        // [FIX] 先记录本次合法候选 ID 集合，用于拦截 LLM 幻觉
+        Set<Integer> validCandidateIds = candidates.stream()
+                .map(r -> r.competitionId)
+                .collect(Collectors.toSet());
+
         StringBuilder candidatesDesc = new StringBuilder();
         for (int i = 0; i < candidates.size(); i++) {
             ScoredResult r = candidates.get(i);
@@ -404,12 +454,14 @@ public class CompetitionSearchService {
                     .append(joinTags(r)).append("\n");
         }
 
+        // [FIX] Prompt 明确告知 LLM 只能从候选列表中选择，禁止编造 ID
         String systemPrompt = """
-                你是一个竞赛推荐助手。根据用户的搜索意图，对候选竞赛按相关性从高到低排序。
-                重要：如果某个竞赛与用户需求完全不相关，请直接将其从结果中去除，不要排在末尾。
-                只返回相关竞赛的 competitionId 的 JSON 数组，格式如：[3,1,5]，不要其他内容。
+                你是一个竞赛推荐助手。根据用户的搜索意图，对下方候选竞赛按相关性从高到低排序。
+                【严格限制】：只能从下方候选列表中选择 competitionId，绝对禁止添加列表之外的任何 ID。
+                如果某个竞赛与用户需求完全不相关，直接排除即可，不要排在末尾。
+                只返回相关竞赛的 competitionId 的 JSON 数组，格式如：[3,1,5]，不要其他任何内容。
                 """;
-        String userMsg = "用户搜索：" + originalQuery + "\n\n候选竞赛：\n" + candidatesDesc;
+        String userMsg = "用户搜索：" + originalQuery + "\n\n候选竞赛（只能从这里选）：\n" + candidatesDesc;
 
         try {
             String response = dashScopeUtil.chat(systemPrompt, userMsg, 0.1);
@@ -424,10 +476,14 @@ public class CompetitionSearchService {
             List<ScoredResult> reranked = new ArrayList<>();
             for (int i = 0; i < idArray.size(); i++) {
                 Integer id = idArray.getInteger(i);
-                if (idMap.containsKey(id)) {
+                // [FIX] 双重校验：① 必须在本次候选集中  ② map 中存在
+                // 任意一条不满足都视为 LLM 幻觉，直接丢弃
+                if (validCandidateIds.contains(id) && idMap.containsKey(id)) {
                     ScoredResult r = idMap.get(id);
                     r.rerankScore = 1.0 - (double) i / idArray.size();
                     reranked.add(r);
+                } else {
+                    System.out.println("[RERANK] 检测到幻觉 ID，已丢弃：" + id);
                 }
             }
             return reranked;

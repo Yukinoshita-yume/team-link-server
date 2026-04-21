@@ -22,7 +22,7 @@ public interface CompetitionMapper {
 
     //报名竞赛
     @Insert("insert into competition_member (competition_id,user_id)"+
-    "values (#{competitionId},#{userId})")
+            "values (#{competitionId},#{userId})")
     void applyCompetition(CompetitionMember competitionMember);
 
     //加入竞赛(报名成功)
@@ -49,7 +49,7 @@ public interface CompetitionMapper {
 
     //查询用户是否报名
     @Select("select count(*)>0 from competition_member " +
-    "where user_id=#{userId} and competition_id = #{competitionId}")
+            "where user_id=#{userId} and competition_id = #{competitionId}")
     boolean checkApplication(@Param("userId") Integer userId, @Param("competitionId") Integer competitionId);
 
     //取消报名
@@ -78,4 +78,13 @@ public interface CompetitionMapper {
 
     @Select("select title from competition where competition_id = #{competitionId}")
     String getTitleById(Integer competitionId);
+
+    @Select("<script>" +
+            "select competition_id from competition " +
+            "where competition_id in " +
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>" +
+            "#{id}" +
+            "</foreach>" +
+            "</script>")
+    List<Integer> findExistingIds(@Param("ids") List<Integer> ids);
 }
