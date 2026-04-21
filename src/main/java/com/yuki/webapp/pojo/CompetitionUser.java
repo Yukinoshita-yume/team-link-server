@@ -10,4 +10,5 @@ import lombok.NoArgsConstructor;
 public class CompetitionUser {
     private Integer userId;
     private String userName;
+    private Integer admissionStatus; // 0: 未录取, 1: 已录取
 }
