@@ -31,11 +31,17 @@ public interface CompetitionMapper {
     int joinCompetition(CompetitionMember competitionMember);
 
     //查询一个竞赛的所有参与者
-    @Select("select u.user_id, u.user_name from user u " +
+    @Select("select u.user_id, u.user_name from user u, cm.admission_status " +
             "join competition_member cm on u.user_id = cm.user_id " +
             "where cm.competition_id = #{competitionId} " +
             "and cm.admission_status = 1")
     List<CompetitionUser> selectAllMembers(@Param("competitionId") Integer competitionId);
+
+    //查询一个竞赛的所有报名者（包含是否录取状态）
+    @Select("select u.user_id, u.user_name, cm.admission_status from user u " +
+            "join competition_member cm on u.user_id = cm.user_id " +
+            "where cm.competition_id = #{competitionId}")
+        List<CompetitionUser> selectAllApplicants(@Param("competitionId") Integer competitionId);
 
     //查询一个竞赛的创建者
     @Select("select u.user_id, u.user_name from user u " +

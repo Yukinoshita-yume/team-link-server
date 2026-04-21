@@ -2,6 +2,7 @@ package com.yuki.webapp.service.impl;
 
 import com.yuki.webapp.mapper.MessageMapper;
 import com.yuki.webapp.mapper.UserMapper;
+import com.yuki.webapp.mapper.CompetitionMapper;
 import com.yuki.webapp.pojo.*;
 import com.yuki.webapp.service.MessageService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,8 @@ public class MessageServiceImpl implements MessageService {
     private MessageMapper messageMapper;
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private CompetitionMapper competitionMapper;
     @Override
     public void createMessage(Message message) {
         message.setIsRead(false);
@@ -76,9 +79,8 @@ public class MessageServiceImpl implements MessageService {
 
         List<Map<String, Object>> result = new ArrayList<>();
 
-        // 获取该竞赛所有未录取成员的列表（包含 userId 和 createdTime）
-        List<CompetitionMember> members = messageMapper
-                .getUnadmittedUserId(competitionId);
+        // 获取该竞赛所有成员的列表(包含未录取)（包含 userId ）
+        List<CompetitionUser> members = competitionMapper.selectAllApplicants(competitionId);
 
         if (!members.isEmpty()) {
             // 提取userId用于批量查询用户名
@@ -90,14 +92,14 @@ public class MessageServiceImpl implements MessageService {
 //           List<User> users = messageMapper.getUserNameByIds(userIds);
 
             // 构建结果
-            for (CompetitionMember member : members) {
+            for (CompetitionUser member : members) {
                 Map<String, Object> item = new HashMap<>();
                 Integer userId = member.getUserId();
                 UserDTO userDTOS = userMapper.getUserInfoById(userId);
                 item.put("userName", userDTOS.getUserName());
-                item.put("timestamp", member.getCompetitionMemberCreatedTime()); // 使用查询到的 createdTime
                 item.put("userMajor", userDTOS.getUserMajor());
                 item.put("userUniversity", userDTOS.getUserUniversity());
+                item.put("status", member.getAdmissionStatus());
                 item.put("userId", userId);
                 result.add(item);
             }
