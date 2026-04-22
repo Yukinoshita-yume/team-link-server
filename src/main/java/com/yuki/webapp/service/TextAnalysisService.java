@@ -156,9 +156,97 @@ public class TextAnalysisService {
     }
 
     /**
-     * 按配置中的基数、关键词命中次数与实体数量计算五维分数，并用配置权重合成总分。
+     * 优先使用 LLM 对五维能力打分；LLM 失败时降级为规则计算。
      */
     private FiveDimensionScore buildFiveDimensionScore(ProfileImage profile, EntityExtractionResult entities, String cleanedText) {
+        FiveDimensionScore score = buildFiveDimensionScoreByLlm(profile, entities, cleanedText);
+        if (score != null) {
+            return score;
+        }
+        return buildFiveDimensionScoreByRule(profile, entities, cleanedText);
+    }
+
+    /**
+     * LLM 打分：让模型直接根据简介内容对五维能力给出 0~100 的分数与理由。
+     */
+    private FiveDimensionScore buildFiveDimensionScoreByLlm(ProfileImage profile, EntityExtractionResult entities, String cleanedText) {
+        String systemPrompt = """
+                你是一个专业的候选人能力评估助手。请根据候选人的个人简介，对以下五个维度进行打分（0~100整数），并给出简短理由。
+                
+                评分维度说明：
+                - technicalDepth（技术深度）：编程语言掌握程度、技术栈深度与广度、实际项目经验
+                - competitionExperience（竞赛经验）：参赛次数、获奖情况、竞赛级别
+                - teamwork（团队协作）：团队合作经历、沟通能力、领导力
+                - learningAbility（学习能力）：自学能力、知识面广度、学习新技术的意愿与速度
+                - timeCommitment（时间投入）：可投入时间、精力状态、参与积极性
+                
+                评分参考标准：
+                - 0~40：该维度信息极少或完全没有体现
+                - 41~60：有一定体现但不突出
+                - 61~80：有较明显的体现，有具体事例支撑
+                - 81~100：非常突出，有充分证据
+                
+                只返回如下 JSON，不要其他内容：
+                {
+                  "technicalDepth": {"score": 整数, "reason": "简短理由"},
+                  "competitionExperience": {"score": 整数, "reason": "简短理由"},
+                  "teamwork": {"score": 整数, "reason": "简短理由"},
+                  "learningAbility": {"score": 整数, "reason": "简短理由"},
+                  "timeCommitment": {"score": 整数, "reason": "简短理由"}
+                }
+                """;
+
+        JSONObject userObj = new JSONObject();
+        userObj.put("intro", cleanedText);
+        userObj.put("skillTags", profile.getSkillTags());
+        userObj.put("languages", entities.getLanguages());
+        userObj.put("frameworks", entities.getFrameworks());
+        userObj.put("awards", entities.getAwards());
+
+        try {
+            String response = dashScopeUtil.chat(systemPrompt, userObj.toJSONString(), 0.1);
+            int start = response.indexOf('{');
+            int end = response.lastIndexOf('}');
+            if (start == -1 || end == -1) return null;
+
+            JSONObject obj = JSON.parseObject(response.substring(start, end + 1));
+
+            int tdVal  = clamp(obj.getJSONObject("technicalDepth").getIntValue("score"));
+            int ceVal  = clamp(obj.getJSONObject("competitionExperience").getIntValue("score"));
+            int twVal  = clamp(obj.getJSONObject("teamwork").getIntValue("score"));
+            int lrVal  = clamp(obj.getJSONObject("learningAbility").getIntValue("score"));
+            int tmVal  = clamp(obj.getJSONObject("timeCommitment").getIntValue("score"));
+
+            String tdReason = obj.getJSONObject("technicalDepth").getString("reason");
+            String ceReason = obj.getJSONObject("competitionExperience").getString("reason");
+            String twReason = obj.getJSONObject("teamwork").getString("reason");
+            String lrReason = obj.getJSONObject("learningAbility").getString("reason");
+            String tmReason = obj.getJSONObject("timeCommitment").getString("reason");
+
+            FiveDimensionScore score = new FiveDimensionScore();
+            score.setTechnicalDepth(new ScoreDimension(tdVal, tdReason));
+            score.setCompetitionExperience(new ScoreDimension(ceVal, ceReason));
+            score.setTeamwork(new ScoreDimension(twVal, twReason));
+            score.setLearningAbility(new ScoreDimension(lrVal, lrReason));
+            score.setTimeCommitment(new ScoreDimension(tmVal, tmReason));
+
+            TextAnalysisProperties.Weights w = textAnalysisProperties.getWeights();
+            double total = tdVal * w.getTechnicalDepth()
+                    + ceVal * w.getCompetitionExperience()
+                    + twVal * w.getTeamwork()
+                    + lrVal * w.getLearningAbility()
+                    + tmVal * w.getTimeCommitment();
+            score.setTotalScore(Math.round(total * 10.0) / 10.0);
+            return score;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 规则打分兜底：LLM 调用失败时使用。
+     */
+    private FiveDimensionScore buildFiveDimensionScoreByRule(ProfileImage profile, EntityExtractionResult entities, String cleanedText) {
         TextAnalysisProperties.ScoringRules s = textAnalysisProperties.getScoring();
         TextAnalysisProperties.Keywords k = textAnalysisProperties.getKeywords();
 
