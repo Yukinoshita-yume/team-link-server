@@ -3,20 +3,23 @@ package com.yuki.webapp.service;
 import com.yuki.webapp.pojo.*;
 
 import java.util.List;
-import java.util.Map;
 
 public interface CompetitionService {
-    //分页查询
+
+    // 分页查询
     PageBean selectCompetition(Integer page, Integer pageSize, String content);
 
-    //创建竞赛
+    // 新建竞赛
     void insertCompetition(Competition competition);
+
+    // 更新竞赛（新增，同步索引用）
+    void updateCompetition(Competition competition);
 
     void applyCompetition(CompetitionMember competitionMember);
 
     int joinCompetition(CompetitionMember competitionMember);
 
-    List<CompetitionUser> allMembers(Integer CompetitionId);
+    List<CompetitionUser> allMembers(Integer competitionId);
 
     CompetitionUser creator(Integer competitionId);
 

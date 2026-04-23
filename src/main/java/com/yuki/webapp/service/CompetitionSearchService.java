@@ -15,6 +15,7 @@ import io.qdrant.client.grpc.Points;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -61,6 +62,13 @@ public class CompetitionSearchService {
         }
     }
 
+    @PostConstruct
+    public void syncOnStartup() {
+        System.out.println("[SYNC] 启动时自动同步索引...");
+        String result = syncAllToIndex();
+        System.out.println("[SYNC] " + result);
+    }
+
     // ── 全量同步：数据库 → MeiliSearch + Qdrant ────────────────────────
     public String syncAllToIndex() {
         List<Competition> list = competitionMapper.getAllCompetitions();
@@ -70,19 +78,7 @@ public class CompetitionSearchService {
         for (Competition c : list) {
             // 1. 写入 MeiliSearch
             try {
-                JSONObject doc = new JSONObject();
-                doc.put("competitionId", c.getCompetitionId());
-                doc.put("title", c.getTitle());
-                doc.put("tag1", c.getTag1());
-                doc.put("tag2", c.getTag2());
-                doc.put("tag3", c.getTag3());
-                doc.put("tag4", c.getTag4());
-                doc.put("tag5", c.getTag5());
-                doc.put("competitionDetails", c.getCompetitionDetails());
-                doc.put("maxParticipants", c.getMaxParticipants());
-                doc.put("schoolRequirements", c.getSchoolRequirements());
-                doc.put("deadline", c.getDeadline() != null ? c.getDeadline().toString() : null);
-
+                JSONObject doc = buildMeiliDoc(c);
                 meilisearchClient.getIndex(meiliIndex)
                         .addDocuments("[" + doc.toJSONString() + "]", "competitionId");
                 successMeili++;
@@ -92,41 +88,10 @@ public class CompetitionSearchService {
 
             // 2. 生成向量并写入 Qdrant
             try {
-                String text = nullSafe(c.getTitle()) + " " +
-                        nullSafe(c.getTag1()) + " " +
-                        nullSafe(c.getTag2()) + " " +
-                        nullSafe(c.getTag3()) + " " +
-                        nullSafe(c.getTag4()) + " " +
-                        nullSafe(c.getTag5()) + " " +
-                        nullSafe(c.getCompetitionDetails());
-
+                String text = buildIndexText(c);
                 List<Float> vector = dashScopeUtil.getEmbedding(text);
-
-                Map<String, JsonWithInt.Value> payload = new HashMap<>();
-                payload.put("competitionId", JsonWithInt.Value.newBuilder().setIntegerValue(c.getCompetitionId()).build());
-                payload.put("title", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTitle())).build());
-                payload.put("tag1", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag1())).build());
-                payload.put("tag2", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag2())).build());
-                payload.put("tag3", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag3())).build());
-                payload.put("tag4", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag4())).build());
-                payload.put("tag5", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag5())).build());
-                payload.put("competitionDetails", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getCompetitionDetails())).build());
-                payload.put("deadline", JsonWithInt.Value.newBuilder().setStringValue(
-                        c.getDeadline() != null ? c.getDeadline().toString() : "").build());
-                payload.put("schoolRequirements", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getSchoolRequirements())).build());
-                if (c.getMaxParticipants() != null) {
-                    payload.put("maxParticipants", JsonWithInt.Value.newBuilder().setIntegerValue(c.getMaxParticipants()).build());
-                }
-
-                Points.PointStruct point = Points.PointStruct.newBuilder()
-                        .setId(Points.PointId.newBuilder().setNum(c.getCompetitionId()).build())
-                        .setVectors(Points.Vectors.newBuilder()
-                                .setVector(Points.Vector.newBuilder().addAllData(vector).build()))
-                        .putAllPayload(payload)
-                        .build();
-
-                qdrantClient.upsertAsync(qdrantCollection,
-                        Collections.singletonList(point)).get();
+                Points.PointStruct point = buildQdrantPoint(c, vector);
+                qdrantClient.upsertAsync(qdrantCollection, Collections.singletonList(point)).get();
                 successQdrant++;
             } catch (Exception e) {
                 System.out.println("[SYNC] Qdrant 写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
@@ -137,64 +102,22 @@ public class CompetitionSearchService {
                 + " 条，Qdrant 成功 " + successQdrant + " 条";
     }
 
-    // ── 单条写入索引（新建竞赛时调用）────────────────────────────────────
+    // ── 单条写入索引（新建 / 更新竞赛时调用）─────────────────────────────
     public void addToIndex(Competition c) {
-        // MeiliSearch
+        // MeiliSearch（addDocuments 天然支持 upsert）
         try {
-            JSONObject doc = new JSONObject();
-            doc.put("competitionId", c.getCompetitionId());
-            doc.put("title", c.getTitle());
-            doc.put("tag1", c.getTag1());
-            doc.put("tag2", c.getTag2());
-            doc.put("tag3", c.getTag3());
-            doc.put("tag4", c.getTag4());
-            doc.put("tag5", c.getTag5());
-            doc.put("competitionDetails", c.getCompetitionDetails());
-            doc.put("maxParticipants", c.getMaxParticipants());
-            doc.put("schoolRequirements", c.getSchoolRequirements());
-            doc.put("deadline", c.getDeadline() != null ? c.getDeadline().toString() : null);
-
+            JSONObject doc = buildMeiliDoc(c);
             meilisearchClient.getIndex(meiliIndex)
                     .addDocuments("[" + doc.toJSONString() + "]", "competitionId");
         } catch (Exception e) {
             System.out.println("[INDEX] MeiliSearch 单条写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
         }
 
-        // Qdrant
+        // Qdrant（upsertAsync 天然支持 upsert）
         try {
-            String text = nullSafe(c.getTitle()) + " " +
-                    nullSafe(c.getTag1()) + " " +
-                    nullSafe(c.getTag2()) + " " +
-                    nullSafe(c.getTag3()) + " " +
-                    nullSafe(c.getTag4()) + " " +
-                    nullSafe(c.getTag5()) + " " +
-                    nullSafe(c.getCompetitionDetails());
-
+            String text = buildIndexText(c);
             List<Float> vector = dashScopeUtil.getEmbedding(text);
-
-            Map<String, JsonWithInt.Value> payload = new HashMap<>();
-            payload.put("competitionId", JsonWithInt.Value.newBuilder().setIntegerValue(c.getCompetitionId()).build());
-            payload.put("title", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTitle())).build());
-            payload.put("tag1", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag1())).build());
-            payload.put("tag2", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag2())).build());
-            payload.put("tag3", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag3())).build());
-            payload.put("tag4", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag4())).build());
-            payload.put("tag5", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag5())).build());
-            payload.put("competitionDetails", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getCompetitionDetails())).build());
-            payload.put("deadline", JsonWithInt.Value.newBuilder().setStringValue(
-                    c.getDeadline() != null ? c.getDeadline().toString() : "").build());
-            payload.put("schoolRequirements", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getSchoolRequirements())).build());
-            if (c.getMaxParticipants() != null) {
-                payload.put("maxParticipants", JsonWithInt.Value.newBuilder().setIntegerValue(c.getMaxParticipants()).build());
-            }
-
-            Points.PointStruct point = Points.PointStruct.newBuilder()
-                    .setId(Points.PointId.newBuilder().setNum(c.getCompetitionId()).build())
-                    .setVectors(Points.Vectors.newBuilder()
-                            .setVector(Points.Vector.newBuilder().addAllData(vector).build()))
-                    .putAllPayload(payload)
-                    .build();
-
+            Points.PointStruct point = buildQdrantPoint(c, vector);
             qdrantClient.upsertAsync(qdrantCollection, Collections.singletonList(point)).get();
         } catch (Exception e) {
             System.out.println("[INDEX] Qdrant 单条写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
@@ -202,7 +125,7 @@ public class CompetitionSearchService {
     }
 
     // ── 单条删除索引（删除竞赛时调用）────────────────────────────────────
-    public void removeFromIndex(int competitionId) {
+    public void deleteFromIndex(int competitionId) {
         // MeiliSearch
         try {
             meilisearchClient.getIndex(meiliIndex).deleteDocument(String.valueOf(competitionId));
@@ -236,11 +159,11 @@ public class CompetitionSearchService {
 
         List<ScoredResult> reranked = rerank(timeFilter.cleanQuery, merged);
 
-        // ── [FIX] 回查数据库，过滤掉索引中存在但数据库中已不存在的记录 ──
+        // 回查数据库，过滤掉索引中存在但数据库中已不存在的记录
         Set<Integer> existingIds = getExistingIdsFromDb(reranked);
 
         return reranked.stream()
-                .filter(r -> existingIds.contains(r.competitionId))   // [FIX] 数据库存在性校验
+                .filter(r -> existingIds.contains(r.competitionId))
                 .filter(r -> !isExpired(r.deadline))
                 .filter(r -> matchesTimeFilter(r.deadline, timeFilter))
                 .filter(r -> isRelevant(r))
@@ -249,10 +172,60 @@ public class CompetitionSearchService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * [FIX] 批量回查数据库，返回实际存在的 competitionId 集合。
-     * 用于过滤索引中存在但数据库已删除的幽灵数据。
-     */
+    // ── 公共构建方法（消除重复逻辑）──────────────────────────────────────
+
+    private String buildIndexText(Competition c) {
+        return nullSafe(c.getTitle()) + " " +
+                nullSafe(c.getTag1()) + " " +
+                nullSafe(c.getTag2()) + " " +
+                nullSafe(c.getTag3()) + " " +
+                nullSafe(c.getTag4()) + " " +
+                nullSafe(c.getTag5()) + " " +
+                nullSafe(c.getCompetitionDetails());
+    }
+
+    private JSONObject buildMeiliDoc(Competition c) {
+        JSONObject doc = new JSONObject();
+        doc.put("competitionId", c.getCompetitionId());
+        doc.put("title", c.getTitle());
+        doc.put("tag1", c.getTag1());
+        doc.put("tag2", c.getTag2());
+        doc.put("tag3", c.getTag3());
+        doc.put("tag4", c.getTag4());
+        doc.put("tag5", c.getTag5());
+        doc.put("competitionDetails", c.getCompetitionDetails());
+        doc.put("maxParticipants", c.getMaxParticipants());
+        doc.put("schoolRequirements", c.getSchoolRequirements());
+        doc.put("deadline", c.getDeadline() != null ? c.getDeadline().toString() : null);
+        return doc;
+    }
+
+    private Points.PointStruct buildQdrantPoint(Competition c, List<Float> vector) {
+        Map<String, JsonWithInt.Value> payload = new HashMap<>();
+        payload.put("competitionId", JsonWithInt.Value.newBuilder().setIntegerValue(c.getCompetitionId()).build());
+        payload.put("title", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTitle())).build());
+        payload.put("tag1", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag1())).build());
+        payload.put("tag2", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag2())).build());
+        payload.put("tag3", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag3())).build());
+        payload.put("tag4", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag4())).build());
+        payload.put("tag5", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getTag5())).build());
+        payload.put("competitionDetails", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getCompetitionDetails())).build());
+        payload.put("deadline", JsonWithInt.Value.newBuilder().setStringValue(
+                c.getDeadline() != null ? c.getDeadline().toString() : "").build());
+        payload.put("schoolRequirements", JsonWithInt.Value.newBuilder().setStringValue(nullSafe(c.getSchoolRequirements())).build());
+        if (c.getMaxParticipants() != null) {
+            payload.put("maxParticipants", JsonWithInt.Value.newBuilder().setIntegerValue(c.getMaxParticipants()).build());
+        }
+
+        return Points.PointStruct.newBuilder()
+                .setId(Points.PointId.newBuilder().setNum(c.getCompetitionId()).build())
+                .setVectors(Points.Vectors.newBuilder()
+                        .setVector(Points.Vector.newBuilder().addAllData(vector).build()))
+                .putAllPayload(payload)
+                .build();
+    }
+
+    // ── 批量回查数据库 ────────────────────────────────────────────────
     private Set<Integer> getExistingIdsFromDb(List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return Collections.emptySet();
         List<Integer> ids = candidates.stream()
@@ -262,7 +235,6 @@ public class CompetitionSearchService {
             List<Integer> existing = competitionMapper.findExistingIds(ids);
             return new HashSet<>(existing);
         } catch (Exception e) {
-            // 数据库查询失败时降级：放行全部，避免搜索功能完全不可用
             System.out.println("[SEARCH] 回查数据库失败，跳过存在性校验：" + e.getMessage());
             return candidates.stream().map(r -> r.competitionId).collect(Collectors.toSet());
         }
@@ -441,7 +413,6 @@ public class CompetitionSearchService {
     private List<ScoredResult> rerank(String originalQuery, List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return candidates;
 
-        // [FIX] 先记录本次合法候选 ID 集合，用于拦截 LLM 幻觉
         Set<Integer> validCandidateIds = candidates.stream()
                 .map(r -> r.competitionId)
                 .collect(Collectors.toSet());
@@ -454,7 +425,6 @@ public class CompetitionSearchService {
                     .append(joinTags(r)).append("\n");
         }
 
-        // [FIX] Prompt 明确告知 LLM 只能从候选列表中选择，禁止编造 ID
         String systemPrompt = """
                 你是一个竞赛推荐助手。根据用户的搜索意图，对下方候选竞赛按相关性从高到低排序。
                 【严格限制】：只能从下方候选列表中选择 competitionId，绝对禁止添加列表之外的任何 ID。
@@ -476,8 +446,6 @@ public class CompetitionSearchService {
             List<ScoredResult> reranked = new ArrayList<>();
             for (int i = 0; i < idArray.size(); i++) {
                 Integer id = idArray.getInteger(i);
-                // [FIX] 双重校验：① 必须在本次候选集中  ② map 中存在
-                // 任意一条不满足都视为 LLM 幻觉，直接丢弃
                 if (validCandidateIds.contains(id) && idMap.containsKey(id)) {
                     ScoredResult r = idMap.get(id);
                     r.rerankScore = 1.0 - (double) i / idArray.size();

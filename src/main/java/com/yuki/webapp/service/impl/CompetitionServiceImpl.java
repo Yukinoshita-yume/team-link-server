@@ -5,61 +5,62 @@ import com.github.pagehelper.PageInfo;
 import com.yuki.webapp.mapper.CompetitionMapper;
 import com.yuki.webapp.mapper.MessageMapper;
 import com.yuki.webapp.pojo.*;
-import com.yuki.webapp.service.CompetitionIndexService;
+import com.yuki.webapp.service.CompetitionSearchService;
 import com.yuki.webapp.service.CompetitionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 public class CompetitionServiceImpl implements CompetitionService {
+
     @Autowired
     private CompetitionMapper competitionMapper;
 
     @Autowired
     private MessageMapper messageMapper;
 
+    // 统一使用 CompetitionSearchService，不再依赖 CompetitionIndexService
     @Autowired
-    private CompetitionIndexService competitionIndexService;
+    private CompetitionSearchService competitionSearchService;
 
-    /**
-     * @param page               页码
-     * @param pageSize           每页记录数
-     * @param content
-     * @return PageBean对象，封装总记录数和一页的数据
-     */
-    //分页查询
+    // ── 分页查询 ──────────────────────────────────────────────────────
     @Override
     public PageBean selectCompetition(Integer page, Integer pageSize, String content) {
-        //1.设置分页查询的参数
-        PageHelper.startPage(page,pageSize);//页码，每页显示数
-        //2.查询所有数据
+        PageHelper.startPage(page, pageSize);
         List<CompetitionDTO> allCompetitionList = competitionMapper.selectCompetition(content);
-        //3.使用 PageInfo 封装分页结果
         PageInfo<Competition> pageInfo = new PageInfo<>(allCompetitionList);
-        long total = pageInfo.getTotal();
-        List<Competition> competitionList = pageInfo.getList();
 
-        //创建PageBean对象,把总记录数和此页所有数据封装到PageBean对象
         PageBean pageBean = new PageBean();
-        pageBean.setTotal(total);
-        pageBean.setRows(competitionList);
-
+        pageBean.setTotal(pageInfo.getTotal());
+        pageBean.setRows(pageInfo.getList());
         return pageBean;
     }
 
+    // ── 新建竞赛：写 MySQL → 同步索引 ────────────────────────────────
     @Override
     public void insertCompetition(Competition competition) {
         competition.setCompetitionCreatedTime(LocalDateTime.now());
         competition.setCompetitionUpdatedTime(LocalDateTime.now());
         competitionMapper.insertCompetition(competition);
-        competitionIndexService.indexCompetition(competition);
+        // insertCompetition 的 Mapper 需配置 useGeneratedKeys="true" keyProperty="competitionId"
+        // 确保此处 competition.getCompetitionId() 已被 MyBatis 回填
+        competitionSearchService.addToIndex(competition);
+    }
+
+    // ── 更新竞赛：写 MySQL → 同步索引（upsert，新增此方法）────────────
+    @Override
+    public void updateCompetition(Competition competition) {
+        competition.setCompetitionUpdatedTime(LocalDateTime.now());
+        competitionMapper.updateCompetition(competition);
+        // 从数据库重新查一次，保证索引数据完整（包含 details 等大字段）
+        Competition full = competitionMapper.getById(competition.getCompetitionId());
+        if (full != null) {
+            competitionSearchService.addToIndex(full);
+        }
     }
 
     @Override
@@ -86,23 +87,15 @@ public class CompetitionServiceImpl implements CompetitionService {
 
     @Override
     public CompetitionDetail competitionDetail(Integer competitionId) {
-        // 1. 查询竞赛基础信息
         CompetitionDetail detail = competitionMapper.competitionDetail(competitionId);
-
-        // 2. 查询已录取成员名单
         List<CompetitionUser> members = competitionMapper.getAdmittedMembers(competitionId);
-
-        // 3. 合并结果
         detail.setAdmittedMemberNames(members);
-
         return detail;
     }
 
     @Override
     public boolean checkApplication(Integer userId, Integer competitionId) {
-        if (userId == null || competitionId == null) {
-            return false;
-        }
+        if (userId == null || competitionId == null) return false;
         return competitionMapper.checkApplication(userId, competitionId);
     }
 
@@ -121,33 +114,28 @@ public class CompetitionServiceImpl implements CompetitionService {
         }
     }
 
-    // 查询一个用户创建的所有竞赛
     @Override
     public List<AllCompetitionsDTO> getAllCreatedCompetitions(Integer userId) {
         return competitionMapper.getAllCreatedCompetitions(userId);
     }
 
-    // 查询一个用户参加的所有竞赛
     @Override
     public List<AllCompetitionsDTO> getAllAppliedCompetitions(Integer userId) {
         return competitionMapper.getAllAppliedCompetitions(userId);
     }
 
+    // ── 删除竞赛：删 MySQL → 删索引 ──────────────────────────────────
     @Override
     @Transactional
     public Result deleteCompetition(Integer competitionId) {
         try {
-            // 1. 获取竞赛信息
             String title = competitionMapper.getTitleById(competitionId);
             if (title == null) {
                 return Result.error("未找到对应的竞赛记录");
             }
 
-            // 2. 获取所有报名成员ID
             List<Integer> memberIds = competitionMapper.getUserIdsByCompetitionId(competitionId);
-
             String messageContent = "你报名的" + title + "已被解散";
-            // 4. 为每个成员插入消息
             for (Integer userId : memberIds) {
                 Message message = new Message();
                 message.setUserId(userId);
@@ -156,16 +144,13 @@ public class CompetitionServiceImpl implements CompetitionService {
                 message.setMessageContent(messageContent);
                 message.setIsRead(false);
                 message.setMessageCreatedTime(LocalDateTime.now());
-                // 插入数据库
                 messageMapper.insertMessage(message);
             }
 
-            // 5. 删除成员记录
             competitionMapper.deleteMembers(competitionId);
-            // 6. 删除竞赛记录
             competitionMapper.deleteCompetition(competitionId);
-            // 7. 删除搜索索引
-            competitionIndexService.deleteIndex(competitionId);
+            // 统一用 CompetitionSearchService 删除索引
+            competitionSearchService.deleteFromIndex(competitionId);
 
             return Result.success();
         } catch (Exception e) {
