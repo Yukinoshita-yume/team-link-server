@@ -3,7 +3,6 @@ package com.yuki.webapp.contoller;
 import com.yuki.webapp.pojo.*;
 import com.yuki.webapp.service.CompetitionIndexService;
 import com.yuki.webapp.service.CompetitionService;
-import com.yuki.webapp.service.TeamDiagnoseService;
 import com.yuki.webapp.utils.ThreadLocalUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -122,20 +121,5 @@ public class CompetitionController {
             }
         }
         return Result.success("同步完成，共 " + all.size() + " 条");
-    }
-
-    // 队伍诊断
-
-    @Autowired
-    private TeamDiagnoseService teamDiagnoseService;
-
-    @PostMapping("/teams/{competitionId}/diagnose")
-    public Result<TeamDiagnoseDTO> diagnoseTeam(@PathVariable Integer competitionId) {
-        try {
-            TeamDiagnoseDTO diagnoseResult = teamDiagnoseService.diagnose(competitionId);
-            return Result.success(diagnoseResult);
-        } catch (Exception e) {
-            return Result.error("队伍诊断失败：" + e.getMessage());
-        }
     }
 }

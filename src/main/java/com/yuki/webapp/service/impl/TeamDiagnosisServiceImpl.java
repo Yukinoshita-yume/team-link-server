@@ -36,8 +36,8 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
     // LLM 建议生成的 System Prompt
     private static final String AI_SUGGESTION_SYSTEM_PROMPT =
             "你是一位专业的竞赛组队顾问。根据队伍诊断结果，给出3-5条具体可执行的优化建议。" +
-            "要求：简洁直接，每条建议不超过50字，避免空话，聚焦最高优先级的问题。" +
-            "输出格式：每条建议单独一行，用数字序号开头，如「1. 建议内容」。";
+                    "要求：简洁直接，每条建议不超过50字，避免空话，聚焦最高优先级的问题。" +
+                    "输出格式：每条建议单独一行，用数字序号开头，如「1. 建议内容」。";
 
     @Override
     public TeamDiagnosisReport diagnose(TeamDiagnosisRequest request) {
@@ -116,43 +116,66 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
     /**
      * 根据三个子诊断结果计算诊断总分（0-100）
      *
-     * 扣分规则：
-     * - 每个严重技能缺口 -15 分
-     * - 每个一般技能缺口 -8 分
-     * - 每个轻微技能缺口 -3 分
-     * - 时间高风险 -15 分
-     * - 每个高风险成员额外 -5 分（最多扣 15 分）
-     * - 每个 MISSING 角色 -10 分
-     * - 每个 WEAK 角色 -5 分
-     * - 无同类经历 -8 分
-     * - 无领导经历 -5 分
+     * 三维度独立计分，防止单维度数据缺失导致分数崩塌：
+     *   技能缺口维度：满分 40 分
+     *   时间冲突维度：满分 25 分
+     *   经验角色维度：满分 35 分（角色覆盖 20 + 经验 15）
+     *
+     * 画像完整度保护：
+     *   成员未填写画像时（所有角色均 MISSING），角色维度最多扣 10 分，
+     *   避免新用户首次使用即得 0 分。
      */
     private int calculateTotalScore(SkillGapResult skillGap,
                                     TimeConflictResult timeConflict,
                                     ExperienceRoleResult experienceRole) {
-        int score = 100;
 
-        // 技能缺口扣分
-        score -= skillGap.getCriticalGaps().size() * 15;
-        score -= skillGap.getModerateGaps().size() * 8;
-        score -= skillGap.getMinorGaps().size() * 3;
+        // ── 1. 技能缺口维度（满分 40 分）
+        int skillDeduction = 0;
+        skillDeduction += Math.min(skillGap.getCriticalGaps().size() * 10, 30);
+        skillDeduction += Math.min(skillGap.getModerateGaps().size() * 5,  15);
+        skillDeduction += Math.min(skillGap.getMinorGaps().size()    * 2,  10);
+        skillDeduction  = Math.min(skillDeduction, 40);
+        int skillScore = 40 - skillDeduction;
 
-        // 时间冲突扣分
-        if (timeConflict.isHighRisk()) score -= 15;
-        int memberRiskDeduction = Math.min(timeConflict.getHighRiskMembers().size() * 5, 15);
-        score -= memberRiskDeduction;
+        // ── 2. 时间冲突维度（满分 25 分）
+        int timeScore = 25;
+        if (timeConflict.isHighRisk()) timeScore -= 12;
+        int highRiskMemberCount = timeConflict.getHighRiskMembers() != null
+                ? timeConflict.getHighRiskMembers().size() : 0;
+        timeScore -= Math.min(highRiskMemberCount * 4, 13);
+        timeScore  = Math.max(0, timeScore);
 
-        // 角色覆盖扣分
-        for (ExperienceRoleResult.RoleCoverage rc : experienceRole.getRoleCoverages()) {
-            if ("MISSING".equals(rc.getStatus())) score -= 10;
-            else if ("WEAK".equals(rc.getStatus())) score -= 5;
+        // ── 3. 经验 & 角色覆盖维度（满分 35 分）
+        int expRoleScore = 35;
+
+        // 经验部分（-15 上限）
+        if (!experienceRole.isHasSimilarTypeExperience()) expRoleScore -= 6;
+        if (!experienceRole.isHasLeaderExperience())       expRoleScore -= 4;
+        if (experienceRole.getTotalExperienceCount() == 0) expRoleScore -= 5;
+
+        // 角色覆盖部分（-20 上限）
+        List<ExperienceRoleResult.RoleCoverage> coverages = experienceRole.getRoleCoverages();
+        if (coverages != null && !coverages.isEmpty()) {
+            long missingCount = coverages.stream()
+                    .filter(rc -> "MISSING".equals(rc.getStatus())).count();
+            long weakCount    = coverages.stream()
+                    .filter(rc -> "WEAK".equals(rc.getStatus())).count();
+            // 画像完整度保护：全部 MISSING 说明成员未填画像，最多扣 10 分
+            boolean allMissing = (missingCount == coverages.size());
+            int roleDeduction;
+            if (allMissing) {
+                roleDeduction = 10;
+            } else {
+                roleDeduction  = (int) Math.min(missingCount * 4, 16);
+                roleDeduction += (int) Math.min(weakCount    * 2,  8);
+                roleDeduction  = Math.min(roleDeduction, 20);
+            }
+            expRoleScore -= roleDeduction;
         }
+        expRoleScore = Math.max(0, expRoleScore);
 
-        // 经验断层扣分
-        if (!experienceRole.isHasSimilarTypeExperience()) score -= 8;
-        if (!experienceRole.isHasLeaderExperience())       score -= 5;
-
-        return Math.max(0, score);
+        // ── 汇总
+        return Math.max(0, Math.min(100, skillScore + timeScore + expRoleScore));
     }
 
     /**
@@ -169,9 +192,9 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
      * 温度设为 0.3，保证建议稳定性（需求文档 F4.4 要求）
      */
     private String generateAiSuggestion(String competitionTitle,
-                                         SkillGapResult skillGap,
-                                         TimeConflictResult timeConflict,
-                                         ExperienceRoleResult experienceRole) {
+                                        SkillGapResult skillGap,
+                                        TimeConflictResult timeConflict,
+                                        ExperienceRoleResult experienceRole) {
         try {
             StringBuilder context = new StringBuilder();
             context.append("竞赛名称：").append(competitionTitle).append("\n\n");
@@ -193,8 +216,8 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
             // 时间风险摘要
             if (timeConflict.isHighRisk()) {
                 context.append("【时间风险】全队每周重叠可用时间仅 ")
-                       .append(timeConflict.getWeeklyOverlapHours())
-                       .append(" 小时，高于风险阈值 5h，");
+                        .append(timeConflict.getWeeklyOverlapHours())
+                        .append(" 小时，高于风险阈值 5h，");
                 if (!timeConflict.getHighRiskMembers().isEmpty()) {
                     context.append("高风险成员：");
                     timeConflict.getHighRiskMembers().forEach(m ->
@@ -229,15 +252,15 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
      * LLM 不可用时的规则引擎兜底建议
      */
     private String buildFallbackSuggestion(SkillGapResult skillGap,
-                                            TimeConflictResult timeConflict,
-                                            ExperienceRoleResult experienceRole) {
+                                           TimeConflictResult timeConflict,
+                                           ExperienceRoleResult experienceRole) {
         StringBuilder sb = new StringBuilder();
         int idx = 1;
 
         if (!skillGap.getCriticalGaps().isEmpty()) {
             sb.append(idx++).append(". 立即招募具备 [")
-              .append(skillGap.getCriticalGaps().get(0).getSkillName())
-              .append("] 技能的成员，这是当前最紧迫的缺口。\n");
+                    .append(skillGap.getCriticalGaps().get(0).getSkillName())
+                    .append("] 技能的成员，这是当前最紧迫的缺口。\n");
         }
         if (timeConflict.isHighRisk()) {
             sb.append(idx++).append(". 全队时间严重不足，建议召开时间协调会，确认每人每周至少投入 5 小时。\n");
