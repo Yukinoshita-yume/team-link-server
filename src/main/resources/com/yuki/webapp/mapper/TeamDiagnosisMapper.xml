@@ -80,7 +80,8 @@
     <select id="selectUserTimeProfile" resultType="map">
         SELECT weekly_hours,
                busy_level,
-               available_periods
+               available_periods,
+               score_availability
         FROM user_profile
         WHERE user_id = #{userId}
     </select>

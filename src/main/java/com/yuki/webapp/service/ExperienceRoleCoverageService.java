@@ -113,8 +113,31 @@ public class ExperienceRoleCoverageService {
                 scoredMemberCount++;
             }
 
+            // ✅ 新增：用 score_competition 兜底经验判断
+            // user_competition_experience 明细表为空时，用AI评分补救，避免按"零经验"扣分
+            if (scores != null && scores.get("score_competition") != null) {
+                double sc = ((Number) scores.get("score_competition")).doubleValue();
+                if (sc >= 60) {
+                    hasSimilarType = true;  // AI评分达标，视为有相关经验
+                }
+                if (sc >= 70) {
+                    hasLeader = true;  // 高分成员视为有组织协作能力
+                }
+            }
+
             // ── 擅长方向 → 角色覆盖 ──────────────────────────
             List<Map<String, Object>> domains = diagnosisMapper.selectUserDomains(userId);
+
+            // ✅ 新增：user_domain 为空时，用 score_tech_depth 兜底技术开发角色
+            if (domains.isEmpty() && scores != null && scores.get("score_tech_depth") != null) {
+                double techScore = ((Number) scores.get("score_tech_depth")).doubleValue();
+                if (techScore >= 50) {
+                    if (!roleCoverageMap.get("技术开发").contains(userName)) {
+                        roleCoverageMap.get("技术开发").add(userName);
+                    }
+                }
+            }
+
             Set<String> userDomainSet = new HashSet<>();
             for (Map<String, Object> d : domains) {
                 userDomainSet.add(d.get("domain").toString());
@@ -137,6 +160,9 @@ public class ExperienceRoleCoverageService {
 
         // ── 汇总评分 ──────────────────────────────────────────
         double avgScore = (scoredMemberCount > 0) ? totalCompScore / scoredMemberCount : 0;
+        if (totalExpCount == 0 && avgScore >= BASELINE_COMPETITION_SCORE) {
+            totalExpCount = 1;
+        }
 
         // ── 经验断层描述 ──────────────────────────────────────
         String expDesc = buildExperienceGapDescription(avgScore, hasSimilarType, hasLeader, totalExpCount);

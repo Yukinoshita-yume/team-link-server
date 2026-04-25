@@ -60,7 +60,7 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
         log.info("[Diagnosis] 全队人数: {}", allMembers.size());
 
         // Step 3: 执行三个子诊断
-        SkillGapResult skillGap = skillGapService.analyze(competitionInfo, allMemberIds);
+        SkillGapResult skillGap = skillGapService.analyze(competitionInfo, allMembers);
         TimeConflictResult timeConflict = timeConflictService.detect(allMembers);
         ExperienceRoleResult experienceRole = experienceRoleService.analyze(allMembers, competitionInfo);
 
@@ -131,9 +131,9 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
 
         // ── 1. 技能缺口维度（满分 40 分）
         int skillDeduction = 0;
-        skillDeduction += Math.min(skillGap.getCriticalGaps().size() * 10, 30);
-        skillDeduction += Math.min(skillGap.getModerateGaps().size() * 5,  15);
-        skillDeduction += Math.min(skillGap.getMinorGaps().size()    * 2,  10);
+        skillDeduction += Math.min(skillGap.getCriticalGaps().size() * 6, 20);  // 单个CRITICAL从10→6，上限从30→20
+        skillDeduction += Math.min(skillGap.getModerateGaps().size() * 3, 10);  // 单个MODERATE从5→3，上限从15→10
+        skillDeduction += Math.min(skillGap.getMinorGaps().size()    * 1,  5);  // 单个MINOR从2→1，上限从10→5
         skillDeduction  = Math.min(skillDeduction, 40);
         int skillScore = 40 - skillDeduction;
 

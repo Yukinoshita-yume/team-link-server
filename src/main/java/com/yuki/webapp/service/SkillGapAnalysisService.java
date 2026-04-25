@@ -35,10 +35,10 @@ public class SkillGapAnalysisService {
      * 分析技能缺口
      *
      * @param competitionInfo 竞赛基本信息（含 tag1~tag5）
-     * @param allMemberIds    全队成员 userId 列表（含队长）
+     * @param allMembers      全队成员信息列表（含 user_id, user_name）  // ✅ 改：由 List<Integer> 改为 List<Map>
      * @return 技能缺口分析结果
      */
-    public SkillGapResult analyze(Map<String, Object> competitionInfo, List<Integer> allMemberIds) {
+    public SkillGapResult analyze(Map<String, Object> competitionInfo, List<Map<String, Object>> allMembers) { // ✅ 改：参数类型
 
         // Step 1: 提取竞赛所需技能
         List<String> requiredSkills = extractRequiredSkills(competitionInfo);
@@ -53,7 +53,7 @@ public class SkillGapAnalysisService {
         }
 
         // Step 2: 聚合全队技能 Map<skillName_lower -> List<{userId, userName, level}>>
-        Map<String, List<MemberSkillInfo>> teamSkillMap = aggregateTeamSkills(allMemberIds);
+        Map<String, List<MemberSkillInfo>> teamSkillMap = aggregateTeamSkills(allMembers); // ✅ 改：传完整成员列表
         log.info("[SkillGap] 全队技能数量: {}", teamSkillMap.size());
 
         // Step 3 + 4: 对每个所需技能做匹配判断
@@ -134,16 +134,16 @@ public class SkillGapAnalysisService {
     /**
      * 聚合全队成员技能，返回 Map<skillName小写 -> List<成员技能信息>>
      */
-    private Map<String, List<MemberSkillInfo>> aggregateTeamSkills(List<Integer> memberIds) {
+    private Map<String, List<MemberSkillInfo>> aggregateTeamSkills(List<Map<String, Object>> members) { // ✅ 改：接收完整成员信息
         Map<String, List<MemberSkillInfo>> result = new HashMap<>();
-        // 这里需要通过 userId 查到 userName，先查 admittedMembers 时已经有了
-        // 此处简化：只存 userId，userName 在调用方已知
-        for (Integer userId : memberIds) {
+        for (Map<String, Object> memberInfo : members) { // ✅ 改：遍历完整成员信息
+            Integer userId   = (Integer) memberInfo.get("user_id");
+            String  userName = (String)  memberInfo.get("user_name"); // ✅ 改：正确取 userName
             List<Map<String, Object>> userSkills = diagnosisMapper.selectUserSkillTags(userId);
             for (Map<String, Object> skillRow : userSkills) {
                 String tagName = skillRow.get("tag_name").toString().toLowerCase();
                 String level   = skillRow.get("skill_level").toString();
-                MemberSkillInfo info = new MemberSkillInfo(userId, String.valueOf(userId), level);
+                MemberSkillInfo info = new MemberSkillInfo(userId, userName, level); // ✅ 改：正确传 userName
                 result.computeIfAbsent(tagName, k -> new ArrayList<>()).add(info);
             }
         }
@@ -154,22 +154,35 @@ public class SkillGapAnalysisService {
      * 为所需技能找到匹配的成员，先精确匹配，再用 Embedding 相似度匹配
      */
     private List<MemberSkillInfo> findMatchedMembers(String requiredSkill,
-                                                      Map<String, List<MemberSkillInfo>> teamSkillMap) {
-        String lowerRequired = requiredSkill.toLowerCase();
+                                                     Map<String, List<MemberSkillInfo>> teamSkillMap) {
+        String lowerRequired = requiredSkill.toLowerCase().trim();
 
-        // 精确匹配（大小写不敏感）
+        // ── 1. 精确匹配（大小写不敏感）
         if (teamSkillMap.containsKey(lowerRequired)) {
             return teamSkillMap.get(lowerRequired);
         }
 
-        // 包含匹配（如 "Java" 匹配 "java后端"）
+        // ── 2. 标准化后匹配：去掉空格、数字、特殊符号再比较
+        // 例如：vue3→vue, springboot→springboot, spring boot→springboot
+        String normalizedRequired = normalize(lowerRequired);
+
         for (Map.Entry<String, List<MemberSkillInfo>> entry : teamSkillMap.entrySet()) {
-            if (entry.getKey().contains(lowerRequired) || lowerRequired.contains(entry.getKey())) {
+            String teamSkill = entry.getKey();
+            String normalizedTeam = normalize(teamSkill);
+
+            // 标准化后精确匹配
+            if (normalizedTeam.equals(normalizedRequired)) {
                 return entry.getValue();
+            }
+            // 标准化后包含匹配（任一方包含另一方，且被包含的长度>=2避免误匹配单字母）
+            if (normalizedRequired.length() >= 2 && normalizedTeam.length() >= 2) {
+                if (normalizedTeam.contains(normalizedRequired) || normalizedRequired.contains(normalizedTeam)) {
+                    return entry.getValue();
+                }
             }
         }
 
-        // Embedding 近义词匹配：计算所需技能与队伍已有技能的余弦相似度
+        // ── 3. Embedding 近义词匹配（兜底）
         try {
             List<Float> requiredVec = dashScopeUtil.getEmbedding(requiredSkill);
             float bestSim = 0f;
@@ -195,6 +208,15 @@ public class SkillGapAnalysisService {
         return Collections.emptyList();
     }
 
+    /**
+     * 标准化技能名：转小写、去空格、去版本号数字、去特殊符号
+     * vue3 → vue, spring boot → springboot, vue.js → vuejs
+     */
+    private String normalize(String skill) {
+        return skill.toLowerCase()
+                .replaceAll("[\\s.\\-_]", "")   // 去掉空格、点、横线、下划线
+                .replaceAll("[0-9]+$", "");      // 去掉末尾数字（vue3→vue, python3→python）
+    }
     /**
      * 计算两个向量的余弦相似度
      */

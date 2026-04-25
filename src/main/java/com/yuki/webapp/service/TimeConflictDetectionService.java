@@ -64,7 +64,16 @@ public class TimeConflictDetectionService {
             if (timeProfile != null) {
                 Object wh = timeProfile.get("weekly_hours");
                 Object bl = timeProfile.get("busy_level");
-                if (wh != null) weeklyHours = ((Number) wh).intValue();
+                Object sa = timeProfile.get("score_availability");
+
+                if (wh != null && ((Number) wh).intValue() > 0) {
+                    // weekly_hours 有实际数据，优先使用
+                    weeklyHours = ((Number) wh).intValue();
+                } else if (sa != null) {
+                    // weekly_hours 未填，用 score_availability（0~100）反推：满分100 → 20h/周
+                    weeklyHours = ((Number) sa).intValue() * 20 / 100;
+                }
+
                 if (bl != null) busyLevel = bl.toString();
             } else {
                 log.warn("[TimeConflict] userId={} 无时间画像，视为 0h/周", userId);
