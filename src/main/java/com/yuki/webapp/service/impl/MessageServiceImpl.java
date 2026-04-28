@@ -110,4 +110,38 @@ public class MessageServiceImpl implements MessageService {
     public void read(Integer messageId) {
         messageMapper.read(messageId);
     }
+
+    // ────────────── 私信相关实现 ──────────────
+
+    @Override
+    public void sendDirectMessage(Integer senderId, Integer receiverId, String content) {
+        Message msg = new Message();
+        msg.setSenderId(senderId);
+        msg.setUserId(receiverId);
+        msg.setMessageType("DIRECT");
+        msg.setMessageContent(content);
+        msg.setIsRead(false);
+        msg.setMessageCreatedTime(LocalDateTime.now());
+        messageMapper.sendDirectMessage(msg);
+    }
+
+    @Override
+    public List<DirectMessageDTO> getConversation(Integer userId, Integer otherUserId) {
+        return messageMapper.getConversation(userId, otherUserId);
+    }
+
+    @Override
+    public void markConversationRead(Integer userId, Integer senderId) {
+        messageMapper.markConversationRead(userId, senderId);
+    }
+
+    @Override
+    public List<ChatSessionDTO> getChatSessions(Integer userId) {
+        return messageMapper.getChatSessions(userId);
+    }
+
+    @Override
+    public int getUnreadDirectMessageCount(Integer userId) {
+        return messageMapper.getUnreadDirectMessageCount(userId);
+    }
 }

@@ -33,6 +33,14 @@ public interface CompetitionService {
 
     List<AllCompetitionsDTO> getAllAppliedCompetitions(Integer userId);
 
+    List<AllCompetitionsDTO> getAllRegisteredCompetitions(Integer userId);
+
+    int getUnreadMessageCount(Integer userId);
+
+    int getPendingReviewCount(Integer userId);
+
+    void markAllReviewed(Integer competitionId);
+
     Result deleteCompetition(Integer competitionId);
 
     List<Competition> getAllCompetitions();

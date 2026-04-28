@@ -1,8 +1,6 @@
 package com.yuki.webapp.service;
 
-import com.yuki.webapp.pojo.Message;
-import com.yuki.webapp.pojo.MessageDTO;
-import com.yuki.webapp.pojo.Result;
+import com.yuki.webapp.pojo.*;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +14,16 @@ public interface MessageService {
 
     List<Map<String, Object>> getUnadmittedMembersByCompetition(Integer competitionId);
 
-
     void read(Integer messageId);
+
+    // 私信
+    void sendDirectMessage(Integer senderId, Integer receiverId, String content);
+
+    List<DirectMessageDTO> getConversation(Integer userId, Integer otherUserId);
+
+    void markConversationRead(Integer userId, Integer senderId);
+
+    List<ChatSessionDTO> getChatSessions(Integer userId);
+
+    int getUnreadDirectMessageCount(Integer userId);
 }

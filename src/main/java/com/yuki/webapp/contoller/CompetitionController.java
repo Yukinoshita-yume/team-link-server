@@ -94,11 +94,36 @@ public class CompetitionController {
         return Result.success(allCreatedCompetitions);
     }
 
-    // 查询一个用户参加的所有竞赛
+    // 查询一个用户参加的所有竞赛（已录取，admission_status=1）
     @GetMapping("/allAppliedCompetitions")
     public Result allAppliedCompetitions(@RequestParam("userId") Integer userId){
         List<AllCompetitionsDTO> allAppliedCompetitions = competitionService.getAllAppliedCompetitions(userId);
         return Result.success(allAppliedCompetitions);
+    }
+
+    // 查询一个用户报名但尚未审核通过的竞赛（待审核，admission_status=0）
+    @GetMapping("/allRegisteredCompetitions")
+    public Result allRegisteredCompetitions(@RequestParam("userId") Integer userId){
+        List<AllCompetitionsDTO> list = competitionService.getAllRegisteredCompetitions(userId);
+        return Result.success(list);
+    }
+
+    // 查询用户未读消息数 + 待审核报名数（用于徽章提示）
+    @GetMapping("/notificationCounts")
+    public Result notificationCounts(@RequestParam("userId") Integer userId){
+        int unreadMsg = competitionService.getUnreadMessageCount(userId);
+        int pendingReview = competitionService.getPendingReviewCount(userId);
+        java.util.Map<String, Integer> data = new java.util.HashMap<>();
+        data.put("unreadMessage", unreadMsg);
+        data.put("pendingReview", pendingReview);
+        return Result.success(data);
+    }
+
+    // 队长打开审核页时调用，将该竞赛所有待审核申请标记为"已查看"，清除红点
+    @PutMapping("/markReviewed")
+    public Result markReviewed(@RequestParam("competitionId") Integer competitionId){
+        competitionService.markAllReviewed(competitionId);
+        return Result.success();
     }
 
     // 解散队伍

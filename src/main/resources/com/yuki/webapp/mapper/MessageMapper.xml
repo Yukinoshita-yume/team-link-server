@@ -3,7 +3,9 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.yuki.webapp.mapper.MessageMapper">
-    <select id = "getMemberMessage" resultType = "com.yuki.webapp.pojo.MessageDTO">
+
+    <!-- 系统消息查询（审核通过/解散等） -->
+    <select id="getMemberMessage" resultType="com.yuki.webapp.pojo.MessageDTO">
         select
             m.*,
             u.user_name,
@@ -12,10 +14,12 @@
         left join user u on m.user_id = u.user_id
         left join competition c on m.competition_id = c.competition_id
         where m.user_id = #{userId}
-        and m.is_read = #{isRead}
+          and (m.message_type is null or m.message_type != 'DIRECT')
+          and m.is_read = #{isRead}
         order by m.message_created_time DESC
     </select>
 
+    <!-- 批量查询用户姓名 -->
     <select id="getUserNameByIds" resultType="com.yuki.webapp.pojo.User">
         select
             user_id as userId,
@@ -26,4 +30,68 @@
             #{id}
         </foreach>
     </select>
+
+    <!-- 查询两人之间的私信对话（双向），按时间升序 -->
+    <select id="getConversation" resultType="com.yuki.webapp.pojo.DirectMessageDTO">
+        select
+            m.message_id       as messageId,
+            m.sender_id        as senderId,
+            su.user_name       as senderName,
+            m.user_id          as receiverId,
+            m.message_content  as messageContent,
+            m.is_read          as isRead,
+            m.message_created_time as messageCreatedTime
+        from message m
+        join user su on m.sender_id = su.user_id
+        where m.message_type = 'DIRECT'
+          and (
+              (m.sender_id = #{userId}    and m.user_id = #{otherUserId})
+           or (m.sender_id = #{otherUserId} and m.user_id = #{userId})
+          )
+        order by m.message_created_time ASC
+    </select>
+
+    <!--
+        查询我参与的所有私信会话，每个对话取最新一条消息 + 统计我未读数。
+        对方 = 所有曾经给我发过消息或我曾经发过消息的用户，去重后各取最新。
+    -->
+    <select id="getChatSessions" resultType="com.yuki.webapp.pojo.ChatSessionDTO">
+        select
+            other_id                                        as otherUserId,
+            u.user_name                                     as otherUserName,
+            latest.last_message                             as lastMessage,
+            latest.last_time                                as lastTime,
+            ifnull(unread.cnt, 0)                           as unreadCount
+        from (
+            /* 找出所有对话方，取每段对话最新一条消息 */
+            select
+                other_id,
+                substring_index(group_concat(message_content order by message_created_time desc separator '|||'), '|||', 1) as last_message,
+                max(message_created_time) as last_time
+            from (
+                /* 我收到的私信 */
+                select sender_id as other_id, message_content, message_created_time
+                from message
+                where user_id = #{userId} and message_type = 'DIRECT'
+                union all
+                /* 我发出的私信 */
+                select user_id as other_id, message_content, message_created_time
+                from message
+                where sender_id = #{userId} and message_type = 'DIRECT'
+            ) all_msgs
+            group by other_id
+        ) latest
+        join user u on u.user_id = latest.other_id
+        left join (
+            /* 统计每个对话方发给我的未读数 */
+            select sender_id, count(*) as cnt
+            from message
+            where user_id = #{userId}
+              and message_type = 'DIRECT'
+              and is_read = false
+            group by sender_id
+        ) unread on unread.sender_id = latest.other_id
+        order by latest.last_time DESC
+    </select>
+
 </mapper>

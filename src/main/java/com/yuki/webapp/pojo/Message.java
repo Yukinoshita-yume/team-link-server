@@ -12,7 +12,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Message {
     private Integer messageId;
-    private Integer userId;
+    private Integer userId;       // 接收者
+    private Integer senderId;     // 发送者（系统消息为 null）
     private Integer competitionId;
     private String messageType;
     private String messageContent;

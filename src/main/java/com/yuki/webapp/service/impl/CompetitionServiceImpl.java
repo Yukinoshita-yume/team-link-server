@@ -124,6 +124,26 @@ public class CompetitionServiceImpl implements CompetitionService {
         return competitionMapper.getAllAppliedCompetitions(userId);
     }
 
+    @Override
+    public List<AllCompetitionsDTO> getAllRegisteredCompetitions(Integer userId) {
+        return competitionMapper.getAllRegisteredCompetitions(userId);
+    }
+
+    @Override
+    public int getUnreadMessageCount(Integer userId) {
+        return competitionMapper.getUnreadMessageCount(userId);
+    }
+
+    @Override
+    public int getPendingReviewCount(Integer userId) {
+        return competitionMapper.getPendingReviewCount(userId);
+    }
+
+    @Override
+    public void markAllReviewed(Integer competitionId) {
+        competitionMapper.markAllReviewed(competitionId);
+    }
+
     // ── 删除竞赛：删 MySQL → 删索引 ──────────────────────────────────
     @Override
     @Transactional

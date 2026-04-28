@@ -24,19 +24,46 @@ public interface MessageMapper {
     // 批量查询用户姓名
     List<User> getUserNameByIds(@Param("userIds") List<Integer> userIds);
 
-    // 创建信息
+    // 创建信息（系统消息，sender_id 为 null）
     @Insert("insert into message (user_id, competition_id, message_type, message_content, is_read, message_created_time) " +
             "values (#{userId}, #{competitionId}, #{messageType}, #{messageContent}, #{isRead}, #{messageCreatedTime})")
-    @Options(useGeneratedKeys = true, keyProperty = "messageId")//设置messageId为自增
+    @Options(useGeneratedKeys = true, keyProperty = "messageId")
     void createMessage(Message message);
 
-    // 标记为已读
+    // 标记单条消息为已读
     @Update("update message set is_read = true where message_id = #{messageId}")
     void read(Integer messageId);
 
-    //创建队伍解散消息
+    // 创建队伍解散消息
     @Insert("insert into message (user_id, competition_id, message_type, message_content, is_read, message_created_time) " +
             "values (#{userId}, #{competitionId}, #{messageType}, #{messageContent}, #{isRead}, #{messageCreatedTime})")
     @Options(useGeneratedKeys = true, keyProperty = "messageId")
     void insertMessage(Message message);
+
+    // ────────────── 私信相关 ──────────────
+
+    // 发送私信（sender_id 有值，message_type = 'DIRECT'）
+    @Insert("insert into message (user_id, sender_id, message_type, message_content, is_read, message_created_time) " +
+            "values (#{userId}, #{senderId}, 'DIRECT', #{messageContent}, false, #{messageCreatedTime})")
+    @Options(useGeneratedKeys = true, keyProperty = "messageId")
+    void sendDirectMessage(Message message);
+
+    // 查询两人之间的私信对话（按时间升序），在 XML 中定义
+    List<DirectMessageDTO> getConversation(@Param("userId") Integer userId,
+                                           @Param("otherUserId") Integer otherUserId);
+
+    // 将某段对话中对方发给我的未读消息全部标记已读
+    @Update("update message set is_read = true " +
+            "where user_id = #{userId} and sender_id = #{senderId} " +
+            "and message_type = 'DIRECT' and is_read = false")
+    void markConversationRead(@Param("userId") Integer userId,
+                              @Param("senderId") Integer senderId);
+
+    // 查询我的所有私信会话列表（每个对话取最新一条 + 未读数），在 XML 中定义
+    List<ChatSessionDTO> getChatSessions(@Param("userId") Integer userId);
+
+    // 查询私信未读总数（用于 MessagePage 徽章）
+    @Select("select count(*) from message " +
+            "where user_id = #{userId} and message_type = 'DIRECT' and is_read = false")
+    int getUnreadDirectMessageCount(@Param("userId") Integer userId);
 }

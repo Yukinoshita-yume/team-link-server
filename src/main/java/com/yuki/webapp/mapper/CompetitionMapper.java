@@ -33,7 +33,7 @@ public interface CompetitionMapper {
     List<Competition> getAllCompetitions();
 
     // 报名竞赛
-    @Insert("insert into competition_member (competition_id, user_id) values (#{competitionId}, #{userId})")
+    @Insert("insert into competition_member (competition_id, user_id, is_reviewed) values (#{competitionId}, #{userId}, false)")
     void applyCompetition(CompetitionMember competitionMember);
 
     // 加入竞赛（录取）
@@ -74,11 +74,32 @@ public interface CompetitionMapper {
     @Select("select competition_id, title from competition where user_id = #{userId}")
     List<AllCompetitionsDTO> getAllCreatedCompetitions(@Param("userId") Integer userId);
 
-    // 查询一个用户参加的所有竞赛
+    // 查询一个用户参加的所有竞赛（admission_status=1，已录取）
     @Select("select c.competition_id, c.title from competition c " +
             "join competition_member cm on c.competition_id = cm.competition_id " +
             "where cm.user_id = #{userId} and cm.admission_status = 1")
     List<AllCompetitionsDTO> getAllAppliedCompetitions(@Param("userId") Integer userId);
+
+    // 查询一个用户报名但尚未审核通过的所有竞赛（admission_status=0，待审核）
+    @Select("select c.competition_id, c.title from competition c " +
+            "join competition_member cm on c.competition_id = cm.competition_id " +
+            "where cm.user_id = #{userId} and cm.admission_status = 0")
+    List<AllCompetitionsDTO> getAllRegisteredCompetitions(@Param("userId") Integer userId);
+
+    // 查询用户未读消息数
+    @Select("select count(*) from message where user_id = #{userId} and is_read = false")
+    int getUnreadMessageCount(@Param("userId") Integer userId);
+
+    // 查询用户创建的竞赛中待审核且队长未查看的报名数（用于徽章）
+    @Select("select count(*) from competition_member cm " +
+            "join competition c on cm.competition_id = c.competition_id " +
+            "where c.user_id = #{userId} and cm.admission_status = 0 and (cm.is_reviewed = false or cm.is_reviewed is null)")
+    int getPendingReviewCount(@Param("userId") Integer userId);
+
+    // 将某竞赛的所有待审核申请标记为"已查看"（队长打开审核页时调用）
+    @Update("update competition_member set is_reviewed = true " +
+            "where competition_id = #{competitionId} and admission_status = 0")
+    void markAllReviewed(@Param("competitionId") Integer competitionId);
 
     @Delete("delete from competition_member where competition_id = #{competitionId}")
     void deleteMembers(Integer competitionId);

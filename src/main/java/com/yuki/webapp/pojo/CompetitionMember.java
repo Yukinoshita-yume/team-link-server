@@ -13,6 +13,7 @@ public class CompetitionMember {
     private Integer competitionId;
     private Integer userId;
     private Boolean admissionStatus;
+    private Boolean isReviewed;   // 队长是否已查看该申请（用于审核徽章消除）
     private LocalDateTime competitionMemberCreatedTime;
     private LocalDateTime competitionMemberUpdatedTime;
 }
