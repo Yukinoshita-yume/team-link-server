@@ -87,7 +87,8 @@ public interface CompetitionMapper {
     List<AllCompetitionsDTO> getAllRegisteredCompetitions(@Param("userId") Integer userId);
 
     // 查询用户未读消息数
-    @Select("select count(*) from message where user_id = #{userId} and is_read = false")
+    @Select("select count(*) from message where user_id = #{userId} and is_read = false\n" +
+            "and (message_type is null or message_type != 'DIRECT')")
     int getUnreadMessageCount(@Param("userId") Integer userId);
 
     // 查询用户创建的竞赛中待审核且队长未查看的报名数（用于徽章）
