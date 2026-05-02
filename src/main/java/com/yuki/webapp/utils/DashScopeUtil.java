@@ -113,4 +113,50 @@ public class DashScopeUtil {
             throw new RuntimeException("调用通义千问Chat接口失败: " + e.getMessage(), e);
         }
     }
+
+    /**
+     * 多轮对话（带历史消息）
+     * @param systemPrompt 系统提示词
+     * @param history      完整的对话历史，每项含 role 和 content
+     * @return AI 回复文本
+     */
+    public String chatWithHistory(String systemPrompt, JSONArray history) {
+        JSONObject body = new JSONObject();
+        body.put("model", chatModel);
+        body.put("temperature", 0.7);
+
+        JSONArray messages = new JSONArray();
+
+        // 系统消息
+        JSONObject sys = new JSONObject();
+        sys.put("role", "system");
+        sys.put("content", systemPrompt);
+        messages.add(sys);
+
+        // 历史消息（最多保留最近 20 条，防止 token 超限）
+        int start = Math.max(0, history.size() - 20);
+        for (int i = start; i < history.size(); i++) {
+            messages.add(history.getJSONObject(i));
+        }
+
+        body.put("messages", messages);
+
+        Request request = new Request.Builder()
+                .url(CHAT_URL)
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .post(RequestBody.create(body.toJSONString(), JSON_TYPE))
+                .build();
+
+        try (Response response = client.newCall(request).execute()) {
+            String responseBody = response.body().string();
+            JSONObject result = JSON.parseObject(responseBody);
+            return result
+                    .getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content");
+        } catch (IOException e) {
+            throw new RuntimeException("调用通义千问多轮对话接口失败: " + e.getMessage(), e);
+        }
+    }
 }
