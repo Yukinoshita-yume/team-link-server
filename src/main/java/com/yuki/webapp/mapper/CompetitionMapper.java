@@ -122,4 +122,10 @@ public interface CompetitionMapper {
             "</foreach>" +
             "</script>")
     List<Integer> findExistingIds(@Param("ids") List<Integer> ids);
+
+    @Select("select count(*) from competition_member " +
+            "where competition_id = #{competitionId} " +
+            "and admission_status = 0 " +
+            "and (is_reviewed = false or is_reviewed is null)")
+    int getPendingReviewCountByCompetition(@Param("competitionId") Integer competitionId);
 }

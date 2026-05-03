@@ -144,7 +144,11 @@ public class CompetitionServiceImpl implements CompetitionService {
         competitionMapper.markAllReviewed(competitionId);
     }
 
-    // ── 删除竞赛：删 MySQL → 删索引 ──────────────────────────────────
+    @Override
+    public int getPendingReviewCountByCompetition(Integer competitionId) {
+        return competitionMapper.getPendingReviewCountByCompetition(competitionId);
+    }
+
     @Override
     @Transactional
     public Result deleteCompetition(Integer competitionId) {

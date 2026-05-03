@@ -44,4 +44,6 @@ public interface CompetitionService {
     Result deleteCompetition(Integer competitionId);
 
     List<Competition> getAllCompetitions();
+
+    int getPendingReviewCountByCompetition(Integer competitionId);
 }

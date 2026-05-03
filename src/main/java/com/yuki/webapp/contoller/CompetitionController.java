@@ -147,4 +147,10 @@ public class CompetitionController {
         }
         return Result.success("同步完成，共 " + all.size() + " 条");
     }
+
+    @GetMapping("/pendingReviewCount")
+    public Result pendingReviewCount(@RequestParam("competitionId") Integer competitionId) {
+        int count = competitionService.getPendingReviewCountByCompetition(competitionId);
+        return Result.success(count);
+    }
 }
