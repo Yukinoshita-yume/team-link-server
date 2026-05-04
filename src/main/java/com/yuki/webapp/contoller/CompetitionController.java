@@ -94,6 +94,13 @@ public class CompetitionController {
         return Result.success(allCreatedCompetitions);
     }
 
+    //查询一个竞赛的最大参与人数
+    @GetMapping("/maxParticipants")    
+    public Result maxParticipants(@RequestParam("competitionId") Integer competitionId){
+        Integer maxParticipants = competitionService.getMaxParticipants(competitionId);
+        return Result.success(maxParticipants);
+    }
+
     // 查询一个用户参加的所有竞赛（已录取，admission_status=1）
     @GetMapping("/allAppliedCompetitions")
     public Result allAppliedCompetitions(@RequestParam("userId") Integer userId){

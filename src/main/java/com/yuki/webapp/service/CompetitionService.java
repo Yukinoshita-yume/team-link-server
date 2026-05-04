@@ -46,4 +46,6 @@ public interface CompetitionService {
     List<Competition> getAllCompetitions();
 
     int getPendingReviewCountByCompetition(Integer competitionId);
+    //获取一个竞赛的最大参与人数
+    Integer getMaxParticipants(Integer competitionId);
 }

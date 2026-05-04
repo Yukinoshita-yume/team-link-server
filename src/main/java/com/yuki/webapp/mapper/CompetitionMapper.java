@@ -46,6 +46,10 @@ public interface CompetitionMapper {
             "where cm.competition_id = #{competitionId} and cm.admission_status = 1")
     List<CompetitionUser> selectAllMembers(@Param("competitionId") Integer competitionId);
 
+    //查询一个竞赛的最大参与人数
+    @Select("select max_participants from competition where competition_id = #{competitionId}")
+    Integer selectMaxParticipants(@Param("competitionId") Integer competitionId);
+
     // 查询一个竞赛的所有报名者（含录取状态）
     @Select("select u.user_id, u.user_name, cm.admission_status from user u " +
             "join competition_member cm on u.user_id = cm.user_id " +
