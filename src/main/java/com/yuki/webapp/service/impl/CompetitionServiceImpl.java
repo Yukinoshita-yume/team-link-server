@@ -186,4 +186,9 @@ public class CompetitionServiceImpl implements CompetitionService {
     public List<Competition> getAllCompetitions() {
         return competitionMapper.getAllCompetitions();
     }
+
+    @Override
+    public Integer getMaxParticipants(Integer competitionId) {
+        return competitionMapper.selectMaxParticipants(competitionId);
+    }
 }
