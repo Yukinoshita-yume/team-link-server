@@ -108,7 +108,7 @@ public class CompetitionController {
         return Result.success(list);
     }
 
-    // 查询用户未读消息数 + 待审核报名数（用于徽章提示）
+    // 查询用户未读消息数 + 待审核报名数
     @GetMapping("/notificationCounts")
     public Result notificationCounts(@RequestParam("userId") Integer userId){
         int unreadMsg = competitionService.getUnreadMessageCount(userId);
@@ -119,7 +119,6 @@ public class CompetitionController {
         return Result.success(data);
     }
 
-    // 队长打开审核页时调用，将该竞赛所有待审核申请标记为"已查看"，清除红点
     @PutMapping("/markReviewed")
     public Result markReviewed(@RequestParam("competitionId") Integer competitionId){
         competitionService.markAllReviewed(competitionId);

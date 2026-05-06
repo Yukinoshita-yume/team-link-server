@@ -18,7 +18,7 @@ public class TextAnalysisResult {
     private String scoreExplanation;
 
     /**
-     * 抽取/画像来源与置信度、低置信度提示等。
+     * 抽取画像来源与置信度、低置信度提示等。
      */
     private AnalysisQuality quality;
 }

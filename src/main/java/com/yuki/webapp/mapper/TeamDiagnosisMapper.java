@@ -8,7 +8,6 @@ import java.util.Map;
 
 /**
  * 队伍诊断数据访问层
- * 对应 TeamDiagnosisMapper.xml
  */
 @Mapper
 public interface TeamDiagnosisMapper {
@@ -40,7 +39,7 @@ public interface TeamDiagnosisMapper {
     Map<String, Object> selectCompetitionCreator(@Param("competitionId") Integer competitionId);
 
     // ─────────────────────────────────────────────────────────────────────
-    // 4.1 技能缺口分析
+    // 能缺口分析
     // ─────────────────────────────────────────────────────────────────────
 
     /**
@@ -57,7 +56,7 @@ public interface TeamDiagnosisMapper {
     List<Map<String, Object>> selectSkillTagByName(@Param("tagName") String tagName);
 
     // ─────────────────────────────────────────────────────────────────────
-    // 4.2 时间冲突检测
+    // 时间冲突检测
     // ─────────────────────────────────────────────────────────────────────
 
     /**
@@ -80,7 +79,7 @@ public interface TeamDiagnosisMapper {
     );
 
     // ─────────────────────────────────────────────────────────────────────
-    // 4.3 经验断层 + 角色覆盖
+    // 经验断层 + 角色覆盖
     // ─────────────────────────────────────────────────────────────────────
 
     /**

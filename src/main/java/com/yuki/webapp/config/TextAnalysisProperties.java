@@ -58,7 +58,7 @@ public class TextAnalysisProperties {
     @Data
     public static class Confidence {
         /**
-         * 低于该值时 {@link com.yuki.webapp.pojo.analysis.AnalysisQuality#lowConfidence} 为 true。
+         * 低于该值时 {@link com.yuki.webapp.pojo.analysis.AnalysisQuality #lowConfidence} 为 true。
          */
         private double lowThreshold = 0.45;
 

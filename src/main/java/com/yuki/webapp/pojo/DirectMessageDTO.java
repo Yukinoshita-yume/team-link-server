@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 私信消息 DTO，用于前端展示对话气泡
+ * 私信消息 DTO
  */
 @Data
 public class DirectMessageDTO {

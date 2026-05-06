@@ -5,7 +5,7 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * 4.1 技能缺口分析结果
+ * 技能缺口分析结果
  */
 @Data
 public class SkillGapResult {
@@ -21,16 +21,12 @@ public class SkillGapResult {
 
     @Data
     public static class GapItem {
-        /** 技能标签名称 */
         private String skillName;
 
-        /** 缺口等级：CRITICAL / MODERATE / MINOR */
         private String gapLevel;
 
-        /** 建议行动 */
         private String suggestion;
 
-        /** 覆盖该技能的成员列表（为空则表示完全缺失） */
         private List<String> coveredByMembers;
     }
 }

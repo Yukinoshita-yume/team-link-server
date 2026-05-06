@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 
 /**
- * 4.3 经验断层 + 角色覆盖分析服务
+ * 经验断层 + 角色覆盖分析服务
  *
  * 逻辑：
  * 1. 遍历全队成员的 user_competition_experience，统计经验场次
@@ -24,16 +24,8 @@ public class ExperienceRoleCoverageService {
 
     private final TeamDiagnosisMapper diagnosisMapper;
 
-    /**
-     * 历史获奖队伍竞赛经验评分基准（参考值）
-     * 实际项目可从历史数据中统计，此处使用经验值 60
-     */
     private static final double BASELINE_COMPETITION_SCORE = 60.0;
 
-    /**
-     * 必要角色列表及其对应的 domain 关键词
-     * key=角色名, value=domain枚举值（含）
-     */
     private static final Map<String, List<String>> ROLE_DOMAIN_MAP = new LinkedHashMap<>();
 
     static {
@@ -44,9 +36,7 @@ public class ExperienceRoleCoverageService {
         ROLE_DOMAIN_MAP.put("答辩/表达", Collections.emptyList()); // 通过经历中的"答辩"关键词判断
     }
 
-    /**
-     * 角色判定：成员数 >= 2 视为覆盖良好，=1 视为薄弱，=0 视为缺失
-     */
+
     private static final int WEAK_THRESHOLD = 1;
 
     /**
@@ -68,13 +58,12 @@ public class ExperienceRoleCoverageService {
         int     scoredMemberCount  = 0;
 
         // 收集每位成员的 domain 列表
-        // Map<角色名 -> List<userName>>
         Map<String, List<String>> roleCoverageMap = new LinkedHashMap<>();
         for (String role : ROLE_DOMAIN_MAP.keySet()) {
             roleCoverageMap.put(role, new ArrayList<>());
         }
 
-        // 提取竞赛所需技能关键词，用于判断"是否有同类型经历"
+        // 提取竞赛所需技能关键词
         String competitionTitle = competitionInfo.get("title") != null
                 ? competitionInfo.get("title").toString() : "";
 
@@ -82,7 +71,7 @@ public class ExperienceRoleCoverageService {
             Integer userId   = (Integer) memberInfo.get("user_id");
             String  userName = (String) memberInfo.get("user_name");
 
-            // ── 经验统计 ──────────────────────────────────────
+            // 经验统计
             List<Map<String, Object>> experiences = diagnosisMapper.selectUserCompetitionExperiences(userId);
             totalExpCount += experiences.size();
 
@@ -106,29 +95,25 @@ public class ExperienceRoleCoverageService {
                 }
             }
 
-            // ── 画像评分 ──────────────────────────────────────
+            // 画像评分
             Map<String, Object> scores = diagnosisMapper.selectUserProfileScores(userId);
             if (scores != null && scores.get("score_competition") != null) {
                 totalCompScore += ((Number) scores.get("score_competition")).doubleValue();
                 scoredMemberCount++;
             }
 
-            // ✅ 新增：用 score_competition 兜底经验判断
-            // user_competition_experience 明细表为空时，用AI评分补救，避免按"零经验"扣分
             if (scores != null && scores.get("score_competition") != null) {
                 double sc = ((Number) scores.get("score_competition")).doubleValue();
                 if (sc >= 60) {
-                    hasSimilarType = true;  // AI评分达标，视为有相关经验
+                    hasSimilarType = true;
                 }
                 if (sc >= 70) {
-                    hasLeader = true;  // 高分成员视为有组织协作能力
+                    hasLeader = true;
                 }
             }
 
-            // ── 擅长方向 → 角色覆盖 ──────────────────────────
             List<Map<String, Object>> domains = diagnosisMapper.selectUserDomains(userId);
 
-            // ✅ 新增：user_domain 为空时，用 score_tech_depth 兜底技术开发角色
             if (domains.isEmpty() && scores != null && scores.get("score_tech_depth") != null) {
                 double techScore = ((Number) scores.get("score_tech_depth")).doubleValue();
                 if (techScore >= 50) {
@@ -146,7 +131,7 @@ public class ExperienceRoleCoverageService {
             for (Map.Entry<String, List<String>> entry : ROLE_DOMAIN_MAP.entrySet()) {
                 String roleName = entry.getKey();
                 List<String> requiredDomains = entry.getValue();
-                if (requiredDomains.isEmpty()) continue; // 答辩角色单独处理
+                if (requiredDomains.isEmpty()) continue;
                 for (String domain : requiredDomains) {
                     if (userDomainSet.contains(domain)) {
                         if (!roleCoverageMap.get(roleName).contains(userName)) {
@@ -158,16 +143,16 @@ public class ExperienceRoleCoverageService {
             }
         }
 
-        // ── 汇总评分 ──────────────────────────────────────────
+        // 汇总评分
         double avgScore = (scoredMemberCount > 0) ? totalCompScore / scoredMemberCount : 0;
         if (totalExpCount == 0 && avgScore >= BASELINE_COMPETITION_SCORE) {
             totalExpCount = 1;
         }
 
-        // ── 经验断层描述 ──────────────────────────────────────
+        // 经验断层描述
         String expDesc = buildExperienceGapDescription(avgScore, hasSimilarType, hasLeader, totalExpCount);
 
-        // ── 构建角色覆盖列表 ──────────────────────────────────
+        // 构建角色覆盖列表
         List<ExperienceRoleResult.RoleCoverage> coverages = new ArrayList<>();
         for (Map.Entry<String, List<String>> entry : roleCoverageMap.entrySet()) {
             ExperienceRoleResult.RoleCoverage rc = new ExperienceRoleResult.RoleCoverage();
@@ -210,14 +195,10 @@ public class ExperienceRoleCoverageService {
      */
     private boolean isSimilarCompetition(String expName, String targetTitle) {
         if (expName.isBlank() || targetTitle.isBlank()) return false;
-        // 提取目标竞赛标题的前4个字符作为关键词（粗粒度匹配）
         String keyword = targetTitle.length() > 4 ? targetTitle.substring(0, 4) : targetTitle;
         return expName.contains(keyword);
     }
 
-    /**
-     * 判断是否为领导角色
-     */
     private boolean isLeaderRole(String role) {
         if (role == null || role.isBlank()) return false;
         String lower = role.toLowerCase();

@@ -11,7 +11,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * 4.2 时间冲突检测服务
+ * 时间冲突检测服务
  *
  * 逻辑：
  * 1. 从 user_profile 取每位成员的 weekly_hours 和 busy_level
@@ -26,10 +26,8 @@ public class TimeConflictDetectionService {
 
     private final TeamDiagnosisMapper diagnosisMapper;
 
-    /** 高风险阈值：每周重叠时间不足 5 小时 */
     private static final int HIGH_RISK_HOURS_THRESHOLD = 5;
 
-    /** 未来预警窗口：90 天 */
     private static final int LOOKAHEAD_DAYS = 90;
 
     /**
@@ -46,7 +44,6 @@ public class TimeConflictDetectionService {
 
         int minWeeklyHours = Integer.MAX_VALUE;
 
-        // 未来 90 天窗口
         LocalDate now = LocalDate.now();
         String windowStart = now.format(DateTimeFormatter.ISO_LOCAL_DATE);
         String windowEnd   = now.plusDays(LOOKAHEAD_DAYS).format(DateTimeFormatter.ISO_LOCAL_DATE);
