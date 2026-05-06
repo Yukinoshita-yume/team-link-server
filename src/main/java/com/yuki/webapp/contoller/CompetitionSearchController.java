@@ -17,7 +17,7 @@ public class CompetitionSearchController {
 
     /**
      * AI 自然语言搜索竞赛
-     * GET /index/aiSearch?q=找需要Java+Vue的计算机设计赛
+     * GET /index/aiSearch?q=...
      */
     @GetMapping("/aiSearch")
     public Result<List<CompetitionSearchResult>> aiSearch(@RequestParam("q") String query) {

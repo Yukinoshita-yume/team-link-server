@@ -11,9 +11,6 @@ import java.util.Map;
 /**
  * AI 多轮对话接口
  * POST /ai/chat
- *
- * 请求体：{ "messages": [ {"role":"user","content":"..."}, {"role":"assistant","content":"..."}, ... ] }
- * 响应：  { "code": 0, "data": "AI回复内容" }
  */
 @RestController
 @RequestMapping("/ai")
@@ -23,7 +20,7 @@ public class AiChatController {
     private DashScopeUtil dashScopeUtil;
 
     /**
-     * 系统提示词 —— 定义 AI 的角色和能力范围
+     * 系统提示词
      */
     private static final String SYSTEM_PROMPT =
             "你是 CompeteHub 平台的专属 AI 竞赛助手，由通义千问驱动。\n" +

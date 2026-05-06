@@ -40,7 +40,7 @@ public class CompetitionServiceImpl implements CompetitionService {
         return pageBean;
     }
 
-    // ── 新建竞赛：写 MySQL → 同步索引 ────────────────────────────────
+    // ── 新建竞赛：写 MySQL → 同步索引
     @Override
     public void insertCompetition(Competition competition) {
         competition.setCompetitionCreatedTime(LocalDateTime.now());
@@ -51,7 +51,6 @@ public class CompetitionServiceImpl implements CompetitionService {
         competitionSearchService.addToIndex(competition);
     }
 
-    // ── 更新竞赛：写 MySQL → 同步索引（upsert，新增此方法）────────────
     @Override
     public void updateCompetition(Competition competition) {
         competition.setCompetitionUpdatedTime(LocalDateTime.now());

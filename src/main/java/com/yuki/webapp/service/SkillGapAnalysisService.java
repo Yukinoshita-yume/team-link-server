@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 4.1 技能缺口分析服务
+ * 技能缺口分析服务
  *
  * 逻辑：
  * 1. 从竞赛的 tag1~tag5 提取所需技能列表
@@ -35,12 +35,12 @@ public class SkillGapAnalysisService {
      * 分析技能缺口
      *
      * @param competitionInfo 竞赛基本信息（含 tag1~tag5）
-     * @param allMembers      全队成员信息列表（含 user_id, user_name）  // ✅ 改：由 List<Integer> 改为 List<Map>
+     * @param allMembers      全队成员信息列表（含 user_id, user_name）
      * @return 技能缺口分析结果
      */
     public SkillGapResult analyze(Map<String, Object> competitionInfo, List<Map<String, Object>> allMembers) { // ✅ 改：参数类型
 
-        // Step 1: 提取竞赛所需技能
+        // 提取竞赛所需技能
         List<String> requiredSkills = extractRequiredSkills(competitionInfo);
         log.info("[SkillGap] 竞赛所需技能: {}", requiredSkills);
 
@@ -52,11 +52,11 @@ public class SkillGapAnalysisService {
             return empty;
         }
 
-        // Step 2: 聚合全队技能 Map<skillName_lower -> List<{userId, userName, level}>>
+        // 聚合全队技能
         Map<String, List<MemberSkillInfo>> teamSkillMap = aggregateTeamSkills(allMembers); // ✅ 改：传完整成员列表
         log.info("[SkillGap] 全队技能数量: {}", teamSkillMap.size());
 
-        // Step 3 + 4: 对每个所需技能做匹配判断
+        // 对每个所需技能做匹配判断
         List<SkillGapResult.GapItem> critical = new ArrayList<>();
         List<SkillGapResult.GapItem> moderate = new ArrayList<>();
         List<SkillGapResult.GapItem> minor    = new ArrayList<>();
@@ -68,17 +68,14 @@ public class SkillGapAnalysisService {
             item.setSkillName(requiredSkill);
 
             if (matched.isEmpty()) {
-                // 严重缺口：完全没有覆盖
                 item.setGapLevel("CRITICAL");
                 item.setSuggestion("必须招募具备 [" + requiredSkill + "] 技能的成员，或寻求外部合作");
                 item.setCoveredByMembers(Collections.emptyList());
                 critical.add(item);
 
             } else {
-                // 检查是否所有覆盖者都是初级
                 boolean allBeginner = matched.stream()
                         .allMatch(m -> "BEGINNER".equals(m.level));
-                // 检查是否只有一个人覆盖（单点依赖）
                 boolean singlePoint = matched.size() == 1;
 
                 List<String> memberNames = matched.stream()
@@ -86,21 +83,18 @@ public class SkillGapAnalysisService {
                         .collect(Collectors.toList());
 
                 if (allBeginner) {
-                    // 一般缺口：有覆盖但熟练度低
                     item.setGapLevel("MODERATE");
                     item.setSuggestion("建议招募更高水平的 [" + requiredSkill + "] 人才，或对现有成员进行针对性培训");
                     item.setCoveredByMembers(memberNames);
                     moderate.add(item);
 
                 } else if (singlePoint) {
-                    // 轻微缺口：单点依赖
                     item.setGapLevel("MINOR");
                     item.setSuggestion("[" + requiredSkill + "] 存在单点依赖风险，建议安排至少一名成员交叉学习");
                     item.setCoveredByMembers(memberNames);
                     minor.add(item);
 
                 } else {
-                    // 无缺口，不加入列表
                     log.debug("[SkillGap] 技能 [{}] 覆盖良好，成员: {}", requiredSkill, memberNames);
                 }
             }
@@ -132,18 +126,18 @@ public class SkillGapAnalysisService {
     }
 
     /**
-     * 聚合全队成员技能，返回 Map<skillName小写 -> List<成员技能信息>>
+     * 聚合全队成员技能
      */
-    private Map<String, List<MemberSkillInfo>> aggregateTeamSkills(List<Map<String, Object>> members) { // ✅ 改：接收完整成员信息
+    private Map<String, List<MemberSkillInfo>> aggregateTeamSkills(List<Map<String, Object>> members) {
         Map<String, List<MemberSkillInfo>> result = new HashMap<>();
-        for (Map<String, Object> memberInfo : members) { // ✅ 改：遍历完整成员信息
+        for (Map<String, Object> memberInfo : members) {
             Integer userId   = (Integer) memberInfo.get("user_id");
-            String  userName = (String)  memberInfo.get("user_name"); // ✅ 改：正确取 userName
+            String  userName = (String)  memberInfo.get("user_name");
             List<Map<String, Object>> userSkills = diagnosisMapper.selectUserSkillTags(userId);
             for (Map<String, Object> skillRow : userSkills) {
                 String tagName = skillRow.get("tag_name").toString().toLowerCase();
                 String level   = skillRow.get("skill_level").toString();
-                MemberSkillInfo info = new MemberSkillInfo(userId, userName, level); // ✅ 改：正确传 userName
+                MemberSkillInfo info = new MemberSkillInfo(userId, userName, level);
                 result.computeIfAbsent(tagName, k -> new ArrayList<>()).add(info);
             }
         }
@@ -157,13 +151,12 @@ public class SkillGapAnalysisService {
                                                      Map<String, List<MemberSkillInfo>> teamSkillMap) {
         String lowerRequired = requiredSkill.toLowerCase().trim();
 
-        // ── 1. 精确匹配（大小写不敏感）
+        // 精确匹配（大小写不敏感）
         if (teamSkillMap.containsKey(lowerRequired)) {
             return teamSkillMap.get(lowerRequired);
         }
 
-        // ── 2. 标准化后匹配：去掉空格、数字、特殊符号再比较
-        // 例如：vue3→vue, springboot→springboot, spring boot→springboot
+        // 标准化后匹配：去掉空格、数字、特殊符号再比较
         String normalizedRequired = normalize(lowerRequired);
 
         for (Map.Entry<String, List<MemberSkillInfo>> entry : teamSkillMap.entrySet()) {
@@ -182,7 +175,7 @@ public class SkillGapAnalysisService {
             }
         }
 
-        // ── 3. Embedding 近义词匹配（兜底）
+        // Embedding 近义词匹配
         try {
             List<Float> requiredVec = dashScopeUtil.getEmbedding(requiredSkill);
             float bestSim = 0f;
@@ -210,12 +203,11 @@ public class SkillGapAnalysisService {
 
     /**
      * 标准化技能名：转小写、去空格、去版本号数字、去特殊符号
-     * vue3 → vue, spring boot → springboot, vue.js → vuejs
      */
     private String normalize(String skill) {
         return skill.toLowerCase()
                 .replaceAll("[\\s.\\-_]", "")   // 去掉空格、点、横线、下划线
-                .replaceAll("[0-9]+$", "");      // 去掉末尾数字（vue3→vue, python3→python）
+                .replaceAll("[0-9]+$", "");      // 去掉末尾数字
     }
     /**
      * 计算两个向量的余弦相似度

@@ -9,7 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * F4 队伍诊断 Controller
+ * 队伍诊断 Controller
  *
  * 接口：POST /api/diagnosis/team
  * 权限：需登录（队长本人调用）
@@ -26,13 +26,6 @@ public class TeamDiagnosisController {
     /**
      * 队伍诊断接口
      *
-     * 请求示例：
-     * POST /api/diagnosis/team
-     * {
-     *   "competitionId": 5
-     * }
-     *
-     * 响应：TeamDiagnosisReport（含总分、风险等级、三个子诊断结果、AI建议）
      */
     @PostMapping("/team")
     public ResponseEntity<?> diagnoseTeam(@RequestBody TeamDiagnosisRequest request) {

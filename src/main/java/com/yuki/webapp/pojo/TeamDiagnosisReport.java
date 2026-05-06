@@ -3,7 +3,7 @@ package com.yuki.webapp.pojo;
 import lombok.Data;
 
 /**
- * F4 队伍诊断完整报告
+ * 队伍诊断完整报告
  */
 @Data
 public class TeamDiagnosisReport {
@@ -20,18 +20,18 @@ public class TeamDiagnosisReport {
     /** 风险等级：LOW / MEDIUM / HIGH */
     private String riskLevel;
 
-    /** 4.1 技能缺口分析 */
+    /** 技能缺口分析 */
     private SkillGapResult skillGap;
 
-    /** 4.2 时间冲突检测 */
+    /** 时间冲突检测 */
     private TimeConflictResult timeConflict;
 
-    /** 4.3 经验断层 + 角色覆盖 */
+    /** 经验断层 + 角色覆盖 */
     private ExperienceRoleResult experienceRole;
 
-    /** LLM 生成的综合优化建议（自然语言） */
+    /** LLM生成的综合优化建议（自然语言） */
     private String aiSuggestion;
 
-    /** 报告生成耗时（毫秒） */
+    /** 报告生成耗时 */
     private Long latencyMs;
 }

@@ -14,13 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * F4 队伍诊断服务实现
- *
- * 编排顺序：
- * 1. 查竞赛信息 + 全队成员
- * 2. 并行执行三个子诊断（此处为顺序调用，可后续改为 CompletableFuture）
- * 3. 汇总评分，计算总分和风险等级
- * 4. 调用 LLM 生成自然语言优化建议
+ * 队伍诊断服务实现
  */
 @Slf4j
 @Service
@@ -44,7 +38,7 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
         long startTime = System.currentTimeMillis();
         Integer competitionId = request.getCompetitionId();
 
-        // Step 1: 查竞赛基本信息
+        //查竞赛基本信息
         Map<String, Object> competitionInfo = diagnosisMapper.selectCompetitionBasicInfo(competitionId);
         if (competitionInfo == null) {
             throw new RuntimeException("竞赛不存在: competitionId=" + competitionId);
@@ -52,26 +46,26 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
         String title = competitionInfo.get("title").toString();
         log.info("[Diagnosis] 开始诊断竞赛「{}」(id={})", title, competitionId);
 
-        // Step 2: 查全队成员（队长 + 已录取成员）
+        // 查全队成员（队长 + 已录取成员）
         List<Map<String, Object>> allMembers = buildAllMemberList(competitionId);
         List<Integer> allMemberIds = allMembers.stream()
                 .map(m -> (Integer) m.get("user_id"))
                 .toList();
         log.info("[Diagnosis] 全队人数: {}", allMembers.size());
 
-        // Step 3: 执行三个子诊断
+        // 执行三个子诊断
         SkillGapResult skillGap = skillGapService.analyze(competitionInfo, allMembers);
         TimeConflictResult timeConflict = timeConflictService.detect(allMembers);
         ExperienceRoleResult experienceRole = experienceRoleService.analyze(allMembers, competitionInfo);
 
-        // Step 4: 计算诊断总分
+        // 计算诊断总分
         int totalScore = calculateTotalScore(skillGap, timeConflict, experienceRole);
         String riskLevel = calcRiskLevel(totalScore);
 
-        // Step 5: LLM 生成综合建议
+        // LLM 生成综合建议
         String aiSuggestion = generateAiSuggestion(title, skillGap, timeConflict, experienceRole);
 
-        // Step 6: 组装报告
+        // 组装报告
         TeamDiagnosisReport report = new TeamDiagnosisReport();
         report.setCompetitionId(competitionId);
         report.setCompetitionTitle(title);
@@ -94,7 +88,7 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * 构建全队成员列表（队长 + 已录取成员，去重）
+     * 构建全队成员列表
      */
     private List<Map<String, Object>> buildAllMemberList(Integer competitionId) {
         List<Map<String, Object>> allMembers = new ArrayList<>();
@@ -131,9 +125,9 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
 
         // ── 1. 技能缺口维度（满分 40 分）
         int skillDeduction = 0;
-        skillDeduction += Math.min(skillGap.getCriticalGaps().size() * 6, 20);  // 单个CRITICAL从10→6，上限从30→20
-        skillDeduction += Math.min(skillGap.getModerateGaps().size() * 3, 10);  // 单个MODERATE从5→3，上限从15→10
-        skillDeduction += Math.min(skillGap.getMinorGaps().size()    * 1,  5);  // 单个MINOR从2→1，上限从10→5
+        skillDeduction += Math.min(skillGap.getCriticalGaps().size() * 6, 20);
+        skillDeduction += Math.min(skillGap.getModerateGaps().size() * 3, 10);
+        skillDeduction += Math.min(skillGap.getMinorGaps().size()    * 1,  5);
         skillDeduction  = Math.min(skillDeduction, 40);
         int skillScore = 40 - skillDeduction;
 
@@ -148,12 +142,12 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
         // ── 3. 经验 & 角色覆盖维度（满分 35 分）
         int expRoleScore = 35;
 
-        // 经验部分（-15 上限）
+        // 经验部分
         if (!experienceRole.isHasSimilarTypeExperience()) expRoleScore -= 6;
         if (!experienceRole.isHasLeaderExperience())       expRoleScore -= 4;
         if (experienceRole.getTotalExperienceCount() == 0) expRoleScore -= 5;
 
-        // 角色覆盖部分（-20 上限）
+        // 角色覆盖部分
         List<ExperienceRoleResult.RoleCoverage> coverages = experienceRole.getRoleCoverages();
         if (coverages != null && !coverages.isEmpty()) {
             long missingCount = coverages.stream()
@@ -187,10 +181,7 @@ public class TeamDiagnosisServiceImpl implements TeamDiagnosisService {
         return "HIGH";
     }
 
-    /**
-     * 调用 LLM 生成自然语言优化建议
-     * 温度设为 0.3，保证建议稳定性（需求文档 F4.4 要求）
-     */
+
     private String generateAiSuggestion(String competitionTitle,
                                         SkillGapResult skillGap,
                                         TimeConflictResult timeConflict,

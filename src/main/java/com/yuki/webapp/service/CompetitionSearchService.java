@@ -51,7 +51,7 @@ public class CompetitionSearchService {
     private static final double MIN_HYBRID_SCORE = 0.25;
     private static final double MIN_RERANK_SCORE = 0.25;
 
-    // ── 时间过滤条件内部类 ──────────────────────────────────────────────
+    // 时间过滤条件内部类
     private static class TimeFilter {
         LocalDateTime from;
         LocalDateTime to;
@@ -69,7 +69,7 @@ public class CompetitionSearchService {
         System.out.println("[SYNC] " + result);
     }
 
-    // ── 全量同步：数据库 → MeiliSearch + Qdrant ────────────────────────
+    // 全量同步：数据库 → MeiliSearch + Qdrant
     public String syncAllToIndex() {
         List<Competition> list = competitionMapper.getAllCompetitions();
         int successMeili = 0;
@@ -102,7 +102,7 @@ public class CompetitionSearchService {
                 + " 条，Qdrant 成功 " + successQdrant + " 条";
     }
 
-    // ── 单条写入索引（新建 / 更新竞赛时调用）─────────────────────────────
+    // 单条写入索引（新建 / 更新竞赛时调用）
     public void addToIndex(Competition c) {
         // MeiliSearch（addDocuments 天然支持 upsert）
         try {
@@ -113,7 +113,7 @@ public class CompetitionSearchService {
             System.out.println("[INDEX] MeiliSearch 单条写入失败 id=" + c.getCompetitionId() + " " + e.getMessage());
         }
 
-        // Qdrant（upsertAsync 天然支持 upsert）
+        // Qdrant
         try {
             String text = buildIndexText(c);
             List<Float> vector = dashScopeUtil.getEmbedding(text);
@@ -124,7 +124,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 单条删除索引（删除竞赛时调用）────────────────────────────────────
+    // 单条删除索引
     public void deleteFromIndex(int competitionId) {
         // MeiliSearch
         try {
@@ -146,7 +146,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 搜索主流程 ────────────────────────────────────────────────────
+    // 搜索主流程
     public List<CompetitionSearchResult> search(String originalQuery) {
         TimeFilter timeFilter = extractTimeFilter(originalQuery);
         String expandedQuery = rewriteQuery(timeFilter.cleanQuery);
@@ -172,7 +172,7 @@ public class CompetitionSearchService {
                 .collect(Collectors.toList());
     }
 
-    // ── 公共构建方法（消除重复逻辑）──────────────────────────────────────
+    // 公共构建方法
 
     private String buildIndexText(Competition c) {
         return nullSafe(c.getTitle()) + " " +
@@ -225,7 +225,7 @@ public class CompetitionSearchService {
                 .build();
     }
 
-    // ── 批量回查数据库 ────────────────────────────────────────────────
+    // 批量回查数据库
     private Set<Integer> getExistingIdsFromDb(List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return Collections.emptySet();
         List<Integer> ids = candidates.stream()
@@ -245,7 +245,7 @@ public class CompetitionSearchService {
         return r.hybridScore >= MIN_HYBRID_SCORE;
     }
 
-    // ── 时间条件提取 ──────────────────────────────────────────────────
+    //时间条件提取
     private TimeFilter extractTimeFilter(String query) {
         TimeFilter filter = new TimeFilter();
         filter.cleanQuery = query;
@@ -294,7 +294,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 查询改写 ──────────────────────────────────────────────────────
+    // 查询改写
     private String rewriteQuery(String query) {
         String systemPrompt = """
                 你是一个竞赛搜索助手。请将用户的搜索词扩展为更完整的搜索短语，
@@ -308,7 +308,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 向量检索 ──────────────────────────────────────────────────────
+    // 向量检索
     private List<ScoredResult> vectorSearch(String query, int limit) {
         try {
             List<Float> queryVector = dashScopeUtil.getEmbedding(query);
@@ -332,7 +332,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── BM25 关键词检索 ───────────────────────────────────────────────
+    // BM25 关键词检索
     private List<ScoredResult> bm25Search(String query, int limit) {
         try {
             com.meilisearch.sdk.model.Searchable searchable =
@@ -364,7 +364,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 混合融合 ──────────────────────────────────────────────────────
+    // 混合融合
     private List<ScoredResult> hybridMerge(List<ScoredResult> vectorResults,
                                            List<ScoredResult> bm25Results) {
         Map<Integer, ScoredResult> map = new LinkedHashMap<>();
@@ -388,7 +388,7 @@ public class CompetitionSearchService {
                 .collect(Collectors.toList());
     }
 
-    // ── 标签命中加分 ──────────────────────────────────────────────────
+    // 标签命中加分
     private void boostByTagMatch(List<ScoredResult> results, String query) {
         if (query == null || query.isBlank()) return;
         String lowerQuery = query.toLowerCase();
@@ -409,7 +409,7 @@ public class CompetitionSearchService {
         results.sort(Comparator.comparingDouble(r -> -r.hybridScore));
     }
 
-    // ── Reranking ─────────────────────────────────────────────────────
+    // Reranking
     private List<ScoredResult> rerank(String originalQuery, List<ScoredResult> candidates) {
         if (candidates.isEmpty()) return candidates;
 
@@ -460,7 +460,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 构建返回结果 ──────────────────────────────────────────────────
+    // 构建返回结果
     private CompetitionSearchResult buildResult(ScoredResult r, String originalQuery) {
         CompetitionSearchResult result = new CompetitionSearchResult();
         result.setCompetitionId(r.competitionId);
@@ -502,7 +502,7 @@ public class CompetitionSearchService {
         }
     }
 
-    // ── 工具方法 ──────────────────────────────────────────────────────
+    // 工具方法
     private boolean isExpired(String deadlineStr) {
         if (deadlineStr == null || deadlineStr.isBlank()) return false;
         try {
