@@ -13,7 +13,7 @@ import java.util.concurrent.ExecutionException;
 
 /**
  * 单一 Qdrant 连接：与现有 {@code qdrant.host}/{@code qdrant.port} 配置一致，
- * 启动时确保「竞赛」collection 存在（同名已存在则跳过）。
+ * 启动时确保竞赛collection 存在（同名已存在则跳过）。
  */
 @Configuration
 public class QdrantConfig {

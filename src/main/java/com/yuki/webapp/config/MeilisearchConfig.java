@@ -36,7 +36,7 @@ public class MeilisearchConfig {
             // 索引不存在则创建，主键设为 competitionId
             try {
                 client.createIndex(indexName, "competitionId");
-                // 配置可搜索字段（title、tags、details 参与全文检索）
+                // 配置可搜索字段
                 client.getIndex(indexName).updateSearchableAttributesSettings(
                         new String[]{"title", "tag1", "tag2", "tag3", "tag4", "tag5",
                                 "competitionDetails", "schoolRequirements"}

@@ -17,7 +17,7 @@ public interface CompetitionMapper {
     @Options(useGeneratedKeys = true, keyProperty = "competitionId")
     void insertCompetition(Competition competition);
 
-    // 更新竞赛（新增）
+    // 更新竞赛
     @Update("update competition set title=#{title}, tag1=#{tag1}, tag2=#{tag2}, tag3=#{tag3}, tag4=#{tag4}, tag5=#{tag5}, " +
             "competition_details=#{competitionDetails}, max_participants=#{maxParticipants}, " +
             "school_requirements=#{schoolRequirements}, deadline=#{deadline}, " +
@@ -25,7 +25,7 @@ public interface CompetitionMapper {
             "where competition_id=#{competitionId}")
     void updateCompetition(Competition competition);
 
-    // 按 ID 查询单条竞赛完整信息（新增，updateCompetition 后重新查用）
+    // 按 ID 查询单条竞赛完整信息
     @Select("select * from competition where competition_id = #{competitionId}")
     Competition getById(@Param("competitionId") Integer competitionId);
 
@@ -95,13 +95,13 @@ public interface CompetitionMapper {
             "and (message_type is null or message_type != 'DIRECT')")
     int getUnreadMessageCount(@Param("userId") Integer userId);
 
-    // 查询用户创建的竞赛中待审核且队长未查看的报名数（用于徽章）
+    // 查询用户创建的竞赛中待审核且队长未查看的报名数
     @Select("select count(*) from competition_member cm " +
             "join competition c on cm.competition_id = c.competition_id " +
             "where c.user_id = #{userId} and cm.admission_status = 0 and (cm.is_reviewed = false or cm.is_reviewed is null)")
     int getPendingReviewCount(@Param("userId") Integer userId);
 
-    // 将某竞赛的所有待审核申请标记为"已查看"（队长打开审核页时调用）
+    // 将某竞赛的所有待审核申请标记为"已查看"
     @Update("update competition_member set is_reviewed = true " +
             "where competition_id = #{competitionId} and admission_status = 0")
     void markAllReviewed(@Param("competitionId") Integer competitionId);

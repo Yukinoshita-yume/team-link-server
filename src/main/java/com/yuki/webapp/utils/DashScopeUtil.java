@@ -11,11 +11,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/**
- * 通义千问 API 工具类
- * - getEmbedding()：文本向量化，用于 Qdrant 存储和检索
- * - chat()：对话生成，用于查询改写、推荐理由生成等
- */
 @Component
 public class DashScopeUtil {
 
@@ -37,10 +32,6 @@ public class DashScopeUtil {
             .readTimeout(60, TimeUnit.SECONDS)
             .build();
 
-    /**
-     * 获取文本的向量表示（1536维）
-     * 用于将竞赛信息写入Qdrant，以及将用户查询向量化后搜索
-     */
     public List<Float> getEmbedding(String text) {
         JSONObject body = new JSONObject();
         body.put("model", embeddingModel);
@@ -70,13 +61,6 @@ public class DashScopeUtil {
         }
     }
 
-    /**
-     * 调用通义千问对话接口
-     * @param systemPrompt 系统提示词
-     * @param userMessage  用户消息
-     * @param temperature  温度（0.0-1.0），越低越稳定
-     * @return AI生成的文本
-     */
     public String chat(String systemPrompt, String userMessage, double temperature) {
         JSONObject body = new JSONObject();
         body.put("model", chatModel);
@@ -114,12 +98,6 @@ public class DashScopeUtil {
         }
     }
 
-    /**
-     * 多轮对话（带历史消息）
-     * @param systemPrompt 系统提示词
-     * @param history      完整的对话历史，每项含 role 和 content
-     * @return AI 回复文本
-     */
     public String chatWithHistory(String systemPrompt, JSONArray history) {
         JSONObject body = new JSONObject();
         body.put("model", chatModel);

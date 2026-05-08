@@ -4,7 +4,7 @@ import com.yuki.webapp.pojo.TeamDiagnosisRequest;
 import com.yuki.webapp.pojo.TeamDiagnosisReport;
 
 /**
- * F4 队伍诊断服务接口
+ * 队伍诊断服务接口
  */
 public interface TeamDiagnosisService {
 

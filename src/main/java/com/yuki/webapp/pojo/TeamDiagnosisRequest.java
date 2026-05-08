@@ -9,7 +9,7 @@ import lombok.Data;
 public class TeamDiagnosisRequest {
 
     /**
-     * 竞赛ID（即队伍ID，competition表中的competition_id）
+     * 竞赛ID,即队伍ID
      */
     private Integer competitionId;
 }

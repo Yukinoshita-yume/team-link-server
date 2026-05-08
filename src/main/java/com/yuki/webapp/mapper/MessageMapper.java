@@ -40,15 +40,14 @@ public interface MessageMapper {
     @Options(useGeneratedKeys = true, keyProperty = "messageId")
     void insertMessage(Message message);
 
-    // ────────────── 私信相关 ──────────────
-
-    // 发送私信（sender_id 有值，message_type = 'DIRECT'）
+    // 私信相关
+    // 发送私信
     @Insert("insert into message (user_id, sender_id, message_type, message_content, is_read, message_created_time) " +
             "values (#{userId}, #{senderId}, 'DIRECT', #{messageContent}, false, #{messageCreatedTime})")
     @Options(useGeneratedKeys = true, keyProperty = "messageId")
     void sendDirectMessage(Message message);
 
-    // 查询两人之间的私信对话（按时间升序），在 XML 中定义
+    // 查询两人之间的私信对话
     List<DirectMessageDTO> getConversation(@Param("userId") Integer userId,
                                            @Param("otherUserId") Integer otherUserId);
 
@@ -59,10 +58,10 @@ public interface MessageMapper {
     void markConversationRead(@Param("userId") Integer userId,
                               @Param("senderId") Integer senderId);
 
-    // 查询我的所有私信会话列表（每个对话取最新一条 + 未读数），在 XML 中定义
+    // 查询所有私信会话列表
     List<ChatSessionDTO> getChatSessions(@Param("userId") Integer userId);
 
-    // 查询私信未读总数（用于 MessagePage 徽章）
+    // 查询私信未读总数
     @Select("select count(*) from message " +
             "where user_id = #{userId} and message_type = 'DIRECT' and is_read = false")
     int getUnreadDirectMessageCount(@Param("userId") Integer userId);
